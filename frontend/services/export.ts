@@ -17,12 +17,15 @@ function escapeHtml(str: string): string {
  */
 export function exportToCSV(
   categoryName: string,
-  users: UserRecord[]
+  users: UserRecord[],
+  unfollowedSet?: Set<string>
 ): void {
   const dateStr = new Date().toISOString().slice(0, 10);
-  const rows = ['username,profile_url'];
+  const rows = ['username,profile_url,status'];
   for (const u of users) {
-    rows.push(`"${u.username.replace(/"/g, '""')}","${u.profile_url.replace(/"/g, '""')}"`);
+    const isUnfollowed = unfollowedSet ? unfollowedSet.has(u.username.toLowerCase()) : false;
+    const status = isUnfollowed ? 'unfollowed' : 'following';
+    rows.push(`"${u.username.replace(/"/g, '""')}","${u.profile_url.replace(/"/g, '""')}","${status}"`);
   }
   const blob = new Blob([rows.join('\n')], { type: 'text/csv;charset=utf-8;' });
   const url = URL.createObjectURL(blob);
@@ -43,7 +46,8 @@ export function exportToHTML(
   categoryLabel: string,
   users: UserRecord[],
   sessionLabel?: string,
-  baselineSessionLabel?: string
+  baselineSessionLabel?: string,
+  unfollowedSet?: Set<string>
 ): void {
   const dateFormatted = new Date().toLocaleString('en-US', {
     dateStyle: 'medium',
@@ -59,20 +63,27 @@ export function exportToHTML(
     .map((user, idx) => {
       const uSafe = escapeHtml(user.username);
       const urlSafe = escapeHtml(user.profile_url);
+      const isUnfollowed = unfollowedSet ? unfollowedSet.has(user.username.toLowerCase()) : false;
+      const unfollowedTag = isUnfollowed
+        ? `<span style="display:inline-flex;align-items:center;padding:2px 6px;font-size:10px;font-weight:600;text-transform:uppercase;color:#f87171;background:rgba(239,68,68,0.15);border:1px solid rgba(239,68,68,0.3);border-radius:4px;margin-left:6px;letter-spacing:0.05em;">unfollowed</span>`
+        : '';
       const picUrl = user.profile_pic_url
         ? escapeHtml(user.profile_pic_url)
         : `https://unavatar.io/instagram/${uSafe}`;
       const fallbackUrl = `https://ui-avatars.com/api/?name=${uSafe}&background=18181b&color=e4e4e7&bold=true`;
 
       return `
-      <tr class="user-row" data-username="${uSafe.toLowerCase()}">
+      <tr class="user-row ${isUnfollowed ? 'unfollowed-row' : ''}" data-username="${uSafe.toLowerCase()}" ${isUnfollowed ? 'style="background:rgba(239,68,68,0.03);"' : ''}>
         <td class="col-num">${idx + 1}</td>
         <td>
           <a href="${urlSafe}" target="_blank" rel="noopener noreferrer" class="user-link">
             <div class="user-cell">
               <img src="${picUrl}" alt="${uSafe}" class="user-avatar-img" onerror="this.onerror=null;this.src='${fallbackUrl}';" />
               <div class="user-meta">
-                <span class="user-handle">@${uSafe}</span>
+                <div style="display:flex;align-items:center;">
+                  <span class="user-handle">@${uSafe}</span>
+                  ${unfollowedTag}
+                </div>
                 <span class="user-sub">instagram.com/${uSafe}</span>
               </div>
             </div>

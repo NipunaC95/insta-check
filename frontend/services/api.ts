@@ -91,3 +91,17 @@ export async function uploadExportFiles(formData: FormData): Promise<UploadRespo
   });
 }
 
+export async function fetchUnfollowedUsers(): Promise<string[]> {
+  const data = await safeFetchJson<{ unfollowed: string[] }>('/api/unfollowed');
+  return data.unfollowed || [];
+}
+
+export async function toggleUnfollowedUserApi(username: string): Promise<{ username: string; unfollowed: boolean }> {
+  return safeFetchJson<{ success: boolean; username: string; unfollowed: boolean }>('/api/unfollowed/toggle', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username }),
+  });
+}
+
+

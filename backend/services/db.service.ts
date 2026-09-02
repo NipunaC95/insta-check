@@ -9,6 +9,7 @@ export class DatabaseService {
   private memoryUploads: UploadRow[] = [];
   private memoryFollowers: UserRow[] = [];
   private memoryFollowing: UserRow[] = [];
+  private memoryUnfollowed: Set<string> = new Set<string>();
   private nextUploadId = 1;
   private nextUserId = 1;
 
@@ -75,10 +76,17 @@ export class DatabaseService {
               profile_pic_url TEXT
             );
 
+            CREATE TABLE IF NOT EXISTS unfollowed_users (
+              id SERIAL PRIMARY KEY,
+              username VARCHAR(255) UNIQUE NOT NULL,
+              unfollowed_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+            );
+
             CREATE INDEX IF NOT EXISTS idx_followers_upload_id ON followers(upload_id);
             CREATE INDEX IF NOT EXISTS idx_followers_username ON followers(username);
             CREATE INDEX IF NOT EXISTS idx_following_upload_id ON following(upload_id);
             CREATE INDEX IF NOT EXISTS idx_following_username ON following(username);
+            CREATE INDEX IF NOT EXISTS idx_unfollowed_username ON unfollowed_users(username);
           `);
           this.isPgAvailable = true;
           console.log('PostgreSQL connected and schema verified successfully.');
@@ -347,6 +355,82 @@ export class DatabaseService {
       allFollowers: currentFollowers,
       allFollowing: currentFollowing,
     };
+  }
+
+  public async getUnfollowedUsers(): Promise<string[]> {
+    if (this.isPgAvailable && this.pgPool) {
+      try {
+        const res = await this.pgPool.query<{ username: string }>(
+          'SELECT username FROM unfollowed_users ORDER BY unfollowed_at DESC'
+        );
+        return res.rows.map((r) => r.username);
+      } catch (err: any) {
+        console.warn('Error fetching unfollowed users from PG:', err.message);
+      }
+    }
+    return Array.from(this.memoryUnfollowed);
+  }
+
+  public async toggleUnfollowedUser(username: string): Promise<{ username: string; unfollowed: boolean }> {
+    const cleanUsername = username.trim().toLowerCase();
+    if (this.isPgAvailable && this.pgPool) {
+      try {
+        const checkRes = await this.pgPool.query(
+          'SELECT id FROM unfollowed_users WHERE LOWER(username) = $1',
+          [cleanUsername]
+        );
+        if ((checkRes.rowCount ?? 0) > 0) {
+          await this.pgPool.query('DELETE FROM unfollowed_users WHERE LOWER(username) = $1', [cleanUsername]);
+          this.memoryUnfollowed.delete(cleanUsername);
+          return { username: cleanUsername, unfollowed: false };
+        } else {
+          await this.pgPool.query(
+            'INSERT INTO unfollowed_users (username) VALUES ($1) ON CONFLICT (username) DO NOTHING',
+            [cleanUsername]
+          );
+          this.memoryUnfollowed.add(cleanUsername);
+          return { username: cleanUsername, unfollowed: true };
+        }
+      } catch (err: any) {
+        console.warn('Error toggling unfollowed user in PG, falling back to memory:', err.message);
+      }
+    }
+
+    if (this.memoryUnfollowed.has(cleanUsername)) {
+      this.memoryUnfollowed.delete(cleanUsername);
+      return { username: cleanUsername, unfollowed: false };
+    } else {
+      this.memoryUnfollowed.add(cleanUsername);
+      return { username: cleanUsername, unfollowed: true };
+    }
+  }
+
+  public async setUnfollowedUser(username: string, unfollowed: boolean): Promise<{ username: string; unfollowed: boolean }> {
+    const cleanUsername = username.trim().toLowerCase();
+    if (this.isPgAvailable && this.pgPool) {
+      try {
+        if (unfollowed) {
+          await this.pgPool.query(
+            'INSERT INTO unfollowed_users (username) VALUES ($1) ON CONFLICT (username) DO NOTHING',
+            [cleanUsername]
+          );
+          this.memoryUnfollowed.add(cleanUsername);
+        } else {
+          await this.pgPool.query('DELETE FROM unfollowed_users WHERE LOWER(username) = $1', [cleanUsername]);
+          this.memoryUnfollowed.delete(cleanUsername);
+        }
+        return { username: cleanUsername, unfollowed };
+      } catch (err: any) {
+        console.warn('Error setting unfollowed user in PG, falling back to memory:', err.message);
+      }
+    }
+
+    if (unfollowed) {
+      this.memoryUnfollowed.add(cleanUsername);
+    } else {
+      this.memoryUnfollowed.delete(cleanUsername);
+    }
+    return { username: cleanUsername, unfollowed };
   }
 }
 

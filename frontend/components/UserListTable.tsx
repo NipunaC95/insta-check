@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   Search,
   ExternalLink,
@@ -14,9 +14,11 @@ import {
   HeartHandshake,
   EyeOff,
   Users,
+  RotateCcw,
 } from 'lucide-react';
 import { UserRecord, DashboardStats } from '../types/index.ts';
 import { exportToCSV, exportToHTML } from '../services/export.ts';
+import { fetchUnfollowedUsers, toggleUnfollowedUserApi } from '../services/api.ts';
 import { UserAvatar } from './UserAvatar.tsx';
 
 interface UserListTableProps {
@@ -35,6 +37,75 @@ export const UserListTable: React.FC<UserListTableProps> = ({
   const [copiedUser, setCopiedUser] = useState<string | null>(null);
   const [copiedAll, setCopiedAll] = useState(false);
   const [showExportMenu, setShowExportMenu] = useState(false);
+  const [unfollowFilter, setUnfollowFilter] = useState<'all' | 'pending' | 'unfollowed'>('all');
+
+  // Track unfollowed users (persisted in localStorage and synchronized with backend)
+  const [unfollowedUsers, setUnfollowedUsers] = useState<Set<string>>(() => {
+    try {
+      const saved = localStorage.getItem('insta_unfollowed_usernames');
+      if (saved) {
+        const arr = JSON.parse(saved);
+        if (Array.isArray(arr)) {
+          return new Set(arr.map((u: string) => u.toLowerCase()));
+        }
+      }
+    } catch (e) {
+      console.error('Failed to load unfollowed users from localStorage', e);
+    }
+    return new Set<string>();
+  });
+
+  // Background sync with backend
+  useEffect(() => {
+    let isMounted = true;
+    fetchUnfollowedUsers()
+      .then((serverList) => {
+        if (!isMounted || !serverList || serverList.length === 0) return;
+        setUnfollowedUsers((prev) => {
+          const merged = new Set(prev);
+          serverList.forEach((u) => merged.add(u.toLowerCase()));
+          try {
+            localStorage.setItem('insta_unfollowed_usernames', JSON.stringify(Array.from(merged)));
+          } catch {
+            // ignore
+          }
+          return merged;
+        });
+      })
+      .catch((err) => {
+        console.warn('Backend unfollowed sync notice:', err.message);
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  const handleToggleUnfollow = async (username: string) => {
+    const clean = username.toLowerCase().trim();
+    const willBeUnfollowed = !unfollowedUsers.has(clean);
+
+    setUnfollowedUsers((prev) => {
+      const next = new Set(prev);
+      if (willBeUnfollowed) {
+        next.add(clean);
+      } else {
+        next.delete(clean);
+      }
+      try {
+        localStorage.setItem('insta_unfollowed_usernames', JSON.stringify(Array.from(next)));
+      } catch (err) {
+        console.error('Error saving unfollowed state:', err);
+      }
+      return next;
+    });
+
+    try {
+      await toggleUnfollowedUserApi(clean);
+    } catch (err: any) {
+      console.warn('Backend toggle API notice (locally preserved):', err.message);
+    }
+  };
 
   // Tab definitions formatted in clean Resend monochrome/subtle accents
   const tabs = [
@@ -111,12 +182,30 @@ export const UserListTable: React.FC<UserListTableProps> = ({
     }
   }, [activeTab, stats]);
 
+  // Count unfollowed and pending in current rawList for Don't Follow Back tab
+  const unfollowedCountInTab = useMemo(() => {
+    return rawList.filter((u) => unfollowedUsers.has(u.username.toLowerCase())).length;
+  }, [rawList, unfollowedUsers]);
+
+  const pendingCountInTab = rawList.length - unfollowedCountInTab;
+
   // Filter and sort list
   const filteredList = useMemo(() => {
     let result = rawList;
+
+    // Filter by search query
     if (searchTerm.trim()) {
       const q = searchTerm.toLowerCase().trim();
       result = result.filter((u) => u.username.toLowerCase().includes(q));
+    }
+
+    // Filter by unfollowed status if in Don't Follow Back tab
+    if (activeTab === 'nonFollowersBack' && unfollowFilter !== 'all') {
+      if (unfollowFilter === 'unfollowed') {
+        result = result.filter((u) => unfollowedUsers.has(u.username.toLowerCase()));
+      } else if (unfollowFilter === 'pending') {
+        result = result.filter((u) => !unfollowedUsers.has(u.username.toLowerCase()));
+      }
     }
 
     result = [...result].sort((a, b) => {
@@ -125,7 +214,7 @@ export const UserListTable: React.FC<UserListTableProps> = ({
     });
 
     return result;
-  }, [rawList, searchTerm, sortDirection]);
+  }, [rawList, searchTerm, sortDirection, activeTab, unfollowFilter, unfollowedUsers]);
 
   // Copy single username
   const handleCopyUsername = (username: string) => {
@@ -148,13 +237,13 @@ export const UserListTable: React.FC<UserListTableProps> = ({
   const onExportHTML = () => {
     const currentLabel = stats.currentUpload.label || `Upload #${stats.currentUpload.id}`;
     const baseLabel = stats.previousUpload?.label || (stats.previousUpload ? `Upload #${stats.previousUpload.id}` : undefined);
-    exportToHTML(activeTab, activeTabMeta.label, filteredList, currentLabel, baseLabel);
+    exportToHTML(activeTab, activeTabMeta.label, filteredList, currentLabel, baseLabel, unfollowedUsers);
     setShowExportMenu(false);
   };
 
   // Handle CSV export
   const onExportCSV = () => {
-    exportToCSV(activeTab, filteredList);
+    exportToCSV(activeTab, filteredList, unfollowedUsers);
     setShowExportMenu(false);
   };
 
@@ -209,6 +298,57 @@ export const UserListTable: React.FC<UserListTableProps> = ({
             className="w-full pl-8 pr-3 py-1.5 text-xs bg-zinc-900/70 border border-zinc-800 rounded-lg text-zinc-200 placeholder-zinc-500 focus:outline-none focus:border-zinc-500 focus:ring-1 focus:ring-zinc-500 transition-colors"
           />
         </div>
+
+        {/* Don't Follow Back Filter Pills: All / Following / Unfollowed */}
+        {activeTab === 'nonFollowersBack' && (
+          <div className="flex items-center gap-1 bg-zinc-900/90 p-1 rounded-lg border border-zinc-800 text-xs w-full sm:w-auto overflow-x-auto">
+            <button
+              id="filter-all-btn"
+              type="button"
+              onClick={() => setUnfollowFilter('all')}
+              className={`px-2.5 py-1 rounded-md text-xs font-medium transition-all cursor-pointer whitespace-nowrap ${
+                unfollowFilter === 'all'
+                  ? 'bg-zinc-800 text-white shadow-xs'
+                  : 'text-zinc-400 hover:text-zinc-200'
+              }`}
+            >
+              All ({rawList.length})
+            </button>
+            <button
+              id="filter-pending-btn"
+              type="button"
+              onClick={() => setUnfollowFilter('pending')}
+              className={`px-2.5 py-1 rounded-md text-xs font-medium transition-all cursor-pointer whitespace-nowrap ${
+                unfollowFilter === 'pending'
+                  ? 'bg-zinc-800 text-white shadow-xs'
+                  : 'text-zinc-400 hover:text-zinc-200'
+              }`}
+            >
+              Following ({pendingCountInTab})
+            </button>
+            <button
+              id="filter-unfollowed-btn"
+              type="button"
+              onClick={() => setUnfollowFilter('unfollowed')}
+              className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium transition-all cursor-pointer whitespace-nowrap ${
+                unfollowFilter === 'unfollowed'
+                  ? 'bg-rose-950/60 text-rose-300 border border-rose-500/40 shadow-xs'
+                  : 'text-zinc-400 hover:text-rose-400'
+              }`}
+            >
+              <span>Unfollowed</span>
+              <span
+                className={`text-[10px] font-mono px-1.5 py-0.2 rounded-full ${
+                  unfollowedCountInTab > 0
+                    ? 'bg-rose-500/20 text-rose-300 border border-rose-500/30'
+                    : 'bg-zinc-800 text-zinc-500'
+                }`}
+              >
+                {unfollowedCountInTab}
+              </span>
+            </button>
+          </div>
+        )}
 
         {/* Resend Controls: Sort, Copy All, and Exports (.html & .csv) */}
         <div className="flex items-center gap-2 w-full sm:w-auto justify-between sm:justify-end flex-wrap">
@@ -305,11 +445,14 @@ export const UserListTable: React.FC<UserListTableProps> = ({
             <tbody className="divide-y divide-zinc-800/60 text-xs">
               {filteredList.map((user, idx) => {
                 const isCopied = copiedUser === user.username;
+                const isUnfollowed = unfollowedUsers.has(user.username.toLowerCase());
 
                 return (
                   <tr
                     key={`${user.username}-${idx}`}
-                    className="hover:bg-zinc-900/40 transition-colors group"
+                    className={`hover:bg-zinc-900/40 transition-colors group ${
+                      isUnfollowed ? 'bg-rose-950/15' : ''
+                    }`}
                   >
                     {/* Index */}
                     <td className="px-4 sm:px-6 py-3 text-center text-zinc-500 font-mono text-[11px]">
@@ -318,23 +461,44 @@ export const UserListTable: React.FC<UserListTableProps> = ({
 
                     {/* User info & handle link */}
                     <td className="px-4 sm:px-6 py-3">
-                      <a
-                        href={user.profile_url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="inline-flex items-center gap-3 group/user-link hover:opacity-95 transition-opacity"
-                        title={`View @${user.username}'s profile on Instagram`}
-                      >
-                        <UserAvatar user={user} sizeClass="w-7 h-7" />
+                      <div className="flex items-center gap-3">
+                        <a
+                          href={user.profile_url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="shrink-0 group/user-link hover:opacity-95 transition-opacity"
+                          title={`View @${user.username}'s profile on Instagram`}
+                        >
+                          <UserAvatar user={user} sizeClass="w-7 h-7" />
+                        </a>
                         <div>
-                          <span className="font-mono font-medium text-zinc-200 group-hover/user-link:text-white group-hover/user-link:underline transition-colors block">
-                            @{user.username}
-                          </span>
-                          <span className="text-[10px] text-zinc-500 block sm:hidden">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <a
+                              href={user.profile_url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="font-mono font-medium text-zinc-200 group-hover/user-link:text-white group-hover/user-link:underline transition-colors block"
+                              title={`View @${user.username}'s profile on Instagram`}
+                            >
+                              @{user.username}
+                            </a>
+
+                            {/* Red 'unfollowed' tag */}
+                            {isUnfollowed && (
+                              <span
+                                id={`tag-unfollowed-${user.username}`}
+                                className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wider bg-rose-500/15 text-rose-400 border border-rose-500/30 shadow-xs"
+                              >
+                                <span className="w-1.5 h-1.5 rounded-full bg-rose-400 shrink-0 animate-pulse" />
+                                unfollowed
+                              </span>
+                            )}
+                          </div>
+                          <span className="text-[10px] text-zinc-500 block sm:hidden font-mono">
                             instagram.com/{user.username}
                           </span>
                         </div>
-                      </a>
+                      </div>
                     </td>
 
                     {/* Desktop URL display link */}
@@ -355,6 +519,33 @@ export const UserListTable: React.FC<UserListTableProps> = ({
                     {/* Action buttons */}
                     <td className="px-4 sm:px-6 py-3 text-right">
                       <div className="inline-flex items-center gap-1.5">
+                        {/* Action button in Don't Follow Back table to unfollow */}
+                        {activeTab === 'nonFollowersBack' && (
+                          <button
+                            id={`btn-unfollow-${user.username}`}
+                            type="button"
+                            onClick={() => handleToggleUnfollow(user.username)}
+                            title={isUnfollowed ? 'Click to undo unfollowed status' : 'Mark as unfollowed'}
+                            className={`inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-md transition-all cursor-pointer ${
+                              isUnfollowed
+                                ? 'text-rose-300 bg-rose-950/60 hover:bg-rose-900/70 border border-rose-500/40 shadow-xs'
+                                : 'text-rose-400 hover:text-white bg-rose-500/10 hover:bg-rose-600 border border-rose-500/25'
+                            }`}
+                          >
+                            {isUnfollowed ? (
+                              <>
+                                <Check className="w-3.5 h-3.5 text-rose-400" />
+                                <span>Unfollowed</span>
+                              </>
+                            ) : (
+                              <>
+                                <UserMinus className="w-3.5 h-3.5" />
+                                <span>Unfollow</span>
+                              </>
+                            )}
+                          </button>
+                        )}
+
                         <button
                           type="button"
                           onClick={() => handleCopyUsername(user.username)}

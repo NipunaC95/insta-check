@@ -29,8 +29,17 @@ CREATE TABLE IF NOT EXISTS following (
   profile_pic_url TEXT
 );
 
--- 4. Indexes for fast lookups & comparisons
+-- 4. Table unfollowed_users: tracks accounts marked as unfollowed
+CREATE TABLE IF NOT EXISTS unfollowed_users (
+  id SERIAL PRIMARY KEY,
+  username VARCHAR(255) UNIQUE NOT NULL,
+  unfollowed_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- 5. Indexes for fast lookups & comparisons
 CREATE INDEX IF NOT EXISTS idx_followers_upload_id ON followers(upload_id);
 CREATE INDEX IF NOT EXISTS idx_followers_username ON followers(username);
 CREATE INDEX IF NOT EXISTS idx_following_upload_id ON following(upload_id);
 CREATE INDEX IF NOT EXISTS idx_following_username ON following(username);
+CREATE INDEX IF NOT EXISTS idx_unfollowed_username ON unfollowed_users(username);
+
