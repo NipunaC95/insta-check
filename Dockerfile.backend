@@ -11,8 +11,7 @@ RUN npm ci
 
 # Copy server code
 COPY server.ts ./
-COPY server/ ./server/
-COPY src/types.ts ./src/types.ts
+COPY backend/ ./backend/
 COPY tsconfig.json ./
 
 # Build backend using esbuild into standalone CJS bundle

@@ -5,17 +5,23 @@ import { UserListTable } from './components/UserListTable.tsx';
 import { UploadModal } from './components/UploadModal.tsx';
 import { SessionsModal } from './components/SessionsModal.tsx';
 import { HowToGuideModal } from './components/HowToGuideModal.tsx';
-import { UploadSession, DashboardStats, UploadResponse } from './types.ts';
+import { UploadSession, DashboardStats, UploadResponse } from './types/index.ts';
+import {
+  fetchUploads as apiFetchUploads,
+  fetchDashboard as apiFetchDashboard,
+  deleteUploadSession,
+  createDemoSessions,
+} from './services/api.ts';
 import {
   UploadCloud,
   Sparkles,
   ArrowRightLeft,
-  Calendar,
   AlertCircle,
   CheckCircle2,
   HelpCircle,
   RefreshCw,
   Instagram,
+  FileCode,
 } from 'lucide-react';
 
 export default function App() {
@@ -41,11 +47,9 @@ export default function App() {
   };
 
   // Fetch all upload sessions
-  const fetchUploads = useCallback(async () => {
+  const loadUploads = useCallback(async () => {
     try {
-      const res = await fetch('/api/uploads');
-      if (!res.ok) throw new Error('Failed to load uploads');
-      const data: UploadSession[] = await res.json();
+      const data = await apiFetchUploads();
       setUploads(data);
       return data;
     } catch (err: any) {
@@ -56,17 +60,12 @@ export default function App() {
   }, []);
 
   // Fetch dashboard stats for an upload
-  const fetchDashboard = useCallback(
+  const loadDashboard = useCallback(
     async (uploadId: number, comparisonId?: number | null) => {
       setIsLoading(true);
       setError(null);
       try {
-        const url = comparisonId
-          ? `/api/dashboard/${uploadId}?compareWithId=${comparisonId}`
-          : `/api/dashboard/${uploadId}`;
-        const res = await fetch(url);
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.error || 'Failed to calculate dashboard insights.');
+        const data = await apiFetchDashboard(uploadId, comparisonId);
         setDashboardStats(data);
       } catch (err: any) {
         console.error('Error fetching dashboard:', err);
@@ -82,42 +81,40 @@ export default function App() {
   useEffect(() => {
     const init = async () => {
       setIsLoading(true);
-      const list = await fetchUploads();
+      const list = await loadUploads();
       if (list.length > 0) {
         const latest = list[0].id;
         setCurrentUploadId(latest);
-        await fetchDashboard(latest);
+        await loadDashboard(latest);
       } else {
         setIsLoading(false);
       }
     };
     init();
-  }, [fetchUploads, fetchDashboard]);
+  }, [loadUploads, loadDashboard]);
 
   // When currentUploadId or compareWithId changes
   useEffect(() => {
     if (currentUploadId) {
-      fetchDashboard(currentUploadId, compareWithId);
+      loadDashboard(currentUploadId, compareWithId);
     }
-  }, [currentUploadId, compareWithId, fetchDashboard]);
+  }, [currentUploadId, compareWithId, loadDashboard]);
 
   // Handler for successful file upload
   const handleUploadSuccess = async (res: UploadResponse) => {
     showToast(`Successfully processed ${res.followersCount} followers and ${res.followingCount} following.`);
-    const updatedList = await fetchUploads();
+    await loadUploads();
     setCurrentUploadId(res.uploadId);
-    setCompareWithId(null); // default to immediate previous upload
+    setCompareWithId(null);
   };
 
   // Handler to load demo data
   const handleLoadDemo = async () => {
     setIsLoading(true);
     try {
-      const res = await fetch('/api/demo', { method: 'POST' });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Failed to seed demo data.');
-      showToast('Demo sessions created! Comparing latest vs previous month.');
-      const updatedList = await fetchUploads();
+      const data = await createDemoSessions();
+      showToast('Demo sessions loaded. Comparing latest vs previous snapshot.');
+      const updatedList = await loadUploads();
       if (data.currentUploadId) {
         setCurrentUploadId(data.currentUploadId);
         setCompareWithId(data.previousUploadId || null);
@@ -135,10 +132,9 @@ export default function App() {
   const handleDeleteUpload = async (id: number) => {
     if (!window.confirm('Are you sure you want to delete this upload session?')) return;
     try {
-      const res = await fetch(`/api/uploads/${id}`, { method: 'DELETE' });
-      if (!res.ok) throw new Error('Failed to delete upload.');
+      await deleteUploadSession(id);
       showToast('Upload session deleted.');
-      const list = await fetchUploads();
+      const list = await loadUploads();
       if (currentUploadId === id) {
         if (list.length > 0) {
           setCurrentUploadId(list[0].id);
@@ -157,19 +153,19 @@ export default function App() {
   const compareSession = uploads.find((u) => u.id === compareWithId) || dashboardStats?.previousUpload || null;
 
   return (
-    <div className="min-h-screen bg-[#0a0a0a] text-[#e5e5e5] flex flex-col font-sans">
-      {/* Toast Notification */}
+    <div className="min-h-screen bg-[#000000] text-zinc-100 flex flex-col font-sans selection:bg-zinc-800 selection:text-white">
+      {/* Toast Notification (Resend minimal floating toast) */}
       {toast && (
-        <div className="fixed bottom-6 right-6 z-50 animate-in fade-in slide-in-from-bottom-5 duration-300">
+        <div className="fixed bottom-6 right-6 z-50 animate-in fade-in slide-in-from-bottom-5 duration-200">
           <div
-            className={`flex items-center gap-2.5 px-4 py-3 rounded-xl shadow-2xl border text-sm font-medium ${
+            className={`flex items-center gap-2.5 px-4 py-2.5 rounded-lg shadow-2xl border text-xs font-medium ${
               toast.type === 'error'
-                ? 'bg-red-950/90 text-red-200 border-red-800/60'
-                : 'bg-[#1a1a1a] text-white border-white/10'
+                ? 'bg-zinc-900 text-rose-300 border-rose-500/30'
+                : 'bg-zinc-900 text-zinc-200 border-zinc-700'
             }`}
           >
             {toast.type === 'error' ? (
-              <AlertCircle className="w-4 h-4 text-red-400 shrink-0" />
+              <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
             ) : (
               <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
             )}
@@ -185,7 +181,7 @@ export default function App() {
         onOpenSessions={() => setIsSessionsModalOpen(true)}
         onOpenGuide={() => setIsGuideModalOpen(true)}
         onLoadDemo={handleLoadDemo}
-        onRefresh={() => currentUploadId && fetchDashboard(currentUploadId, compareWithId)}
+        onRefresh={() => currentUploadId && loadDashboard(currentUploadId, compareWithId)}
         isLoading={isLoading}
       />
 
@@ -193,61 +189,61 @@ export default function App() {
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
         {/* Error Banner */}
         {error && (
-          <div className="p-4 bg-red-500/10 border border-red-500/20 rounded-xl text-sm text-[#ff4d4d] flex items-start gap-3">
-            <AlertCircle className="w-5 h-5 text-[#ff4d4d] shrink-0 mt-0.5" />
+          <div className="p-3.5 bg-rose-500/10 border border-rose-500/20 rounded-xl text-xs text-rose-300 flex items-start gap-2.5">
+            <AlertCircle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
             <div className="flex-1">
               <span className="font-semibold">Notice:</span> {error}
             </div>
           </div>
         )}
 
-        {/* Empty State when no uploads exist */}
+        {/* Empty State when no uploads exist (Resend Clean Obsidian Style) */}
         {!isLoading && uploads.length === 0 && (
-          <div className="max-w-2xl mx-auto my-12 text-center bg-[#161616] border border-white/5 rounded-3xl p-8 sm:p-12 shadow-2xl">
-            <div className="w-16 h-16 mx-auto rounded-2xl bg-gradient-to-tr from-[#f09433] via-[#dc2743] to-[#bc1888] text-white flex items-center justify-center mb-5 shadow-lg shadow-pink-950/40">
-              <Instagram className="w-8 h-8" />
+          <div className="max-w-xl mx-auto my-12 text-center bg-[#09090b] border border-zinc-800 rounded-2xl p-8 sm:p-12 shadow-2xl">
+            <div className="w-12 h-12 mx-auto rounded-xl bg-zinc-900 border border-zinc-800 text-zinc-100 flex items-center justify-center mb-4">
+              <Instagram className="w-6 h-6" />
             </div>
 
-            <h2 className="text-2xl font-bold text-white tracking-tight">
-              Track Who Unfollowed You on Instagram
+            <h2 className="text-xl sm:text-2xl font-semibold text-white tracking-tight">
+              Instagram Follower Insights
             </h2>
 
-            <p className="text-sm text-white/60 mt-2 max-w-md mx-auto leading-relaxed">
-              Upload your official Instagram data export (JSON or ZIP) to view your unfollowers,
-              accounts that don't follow you back, and new followers over time.
+            <p className="text-xs sm:text-sm text-zinc-400 mt-2 max-w-md mx-auto leading-relaxed">
+              Upload your official Instagram data export (JSON, HTML, or ZIP) to analyze unfollowers,
+              mutual accounts, and non-reciprocal following. Export results to HTML or CSV.
             </p>
 
-            <div className="flex flex-col sm:flex-row items-center justify-center gap-3 mt-8">
+            <div className="flex flex-col sm:flex-row items-center justify-center gap-2.5 mt-8">
               <button
                 id="empty-upload-btn"
                 type="button"
                 onClick={() => setIsUploadModalOpen(true)}
-                className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-6 py-3 text-sm font-semibold text-white bg-gradient-to-r from-[#f09433] via-[#dc2743] to-[#bc1888] hover:opacity-95 rounded-xl shadow-lg shadow-pink-950/40 transition-all transform active:scale-95 cursor-pointer"
+                className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-5 py-2.5 text-xs sm:text-sm font-medium text-black bg-white hover:bg-zinc-200 rounded-lg shadow-xs transition-colors cursor-pointer"
               >
-                <UploadCloud className="w-5 h-5" />
-                <span>Upload Export (JSON or ZIP)</span>
+                <UploadCloud className="w-4 h-4" />
+                <span>Upload Export (JSON, HTML, ZIP)</span>
               </button>
 
               <button
                 id="empty-demo-btn"
                 type="button"
                 onClick={handleLoadDemo}
-                className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-5 py-3 text-sm font-semibold text-[#f09433] bg-[#1a1612] hover:bg-[#251f19] border border-[#f09433]/30 rounded-xl transition-colors cursor-pointer"
+                className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-4 py-2.5 text-xs sm:text-sm font-medium text-zinc-300 bg-zinc-900 hover:bg-zinc-800 hover:text-white border border-zinc-800 rounded-lg transition-colors cursor-pointer"
               >
-                <Sparkles className="w-4 h-4 text-[#f09433]" />
-                <span>Try Demo Data</span>
+                <Sparkles className="w-3.5 h-3.5 text-zinc-400" />
+                <span>Load Demo Data</span>
               </button>
             </div>
 
-            <div className="mt-8 pt-6 border-t border-white/5 flex items-center justify-center gap-2 text-xs text-white/40">
-              <HelpCircle className="w-4 h-4" />
-              <span>Need help getting your data?</span>
+            <div className="mt-8 pt-6 border-t border-zinc-800/80 flex items-center justify-center gap-2 text-xs text-zinc-500">
+              <HelpCircle className="w-3.5 h-3.5" />
+              <span>How do I export Instagram data?</span>
               <button
                 type="button"
                 onClick={() => setIsGuideModalOpen(true)}
-                className="text-[#dc2743] font-semibold hover:underline cursor-pointer"
+                className="text-zinc-300 font-medium hover:underline cursor-pointer"
               >
-                Read step-by-step export instructions
+                View step-by-step guide
               </button>
             </div>
           </div>
@@ -255,26 +251,26 @@ export default function App() {
 
         {/* Active Dashboard View */}
         {dashboardStats && (
-          <div className="space-y-6">
+          <div className="space-y-5">
             {/* Session comparison banner */}
-            <div className="bg-[#161616] border border-white/5 rounded-2xl p-4 shadow-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-              <div className="flex items-center gap-2.5 flex-wrap">
-                <span className="text-xs font-semibold text-white/40 uppercase tracking-wider">
-                  Comparing:
+            <div className="bg-[#09090b] border border-zinc-800 rounded-xl p-3.5 sm:p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div className="flex items-center gap-2.5 flex-wrap text-xs">
+                <span className="text-zinc-500 font-mono uppercase tracking-wider text-[11px]">
+                  Comparison:
                 </span>
-                <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold bg-[#dc2743]/15 text-white border border-[#dc2743]/30">
-                  Current: {dashboardStats.currentUpload.label || `Session #${dashboardStats.currentUpload.id}`}
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-mono font-medium bg-zinc-900 text-zinc-100 border border-zinc-700">
+                  Active: {dashboardStats.currentUpload.label || `Session #${dashboardStats.currentUpload.id}`}
                 </span>
 
-                <ArrowRightLeft className="w-3.5 h-3.5 text-white/40 hidden sm:inline" />
+                <ArrowRightLeft className="w-3.5 h-3.5 text-zinc-600 hidden sm:inline" />
 
                 {compareSession ? (
-                  <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold bg-white/5 text-white/80 border border-white/10">
+                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-mono font-medium bg-zinc-950 text-zinc-400 border border-zinc-800">
                     Baseline: {compareSession.label || `Session #${compareSession.id}`}
                   </span>
                 ) : (
-                  <span className="text-xs text-white/40 italic">
-                    (No previous session to compare unfollowers yet &mdash; upload another to track changes)
+                  <span className="text-xs text-zinc-500">
+                    No baseline session selected. Upload a 2nd export to compare unfollowers over time.
                   </span>
                 )}
               </div>
@@ -284,9 +280,9 @@ export default function App() {
                   id="change-comparison-btn"
                   type="button"
                   onClick={() => setIsSessionsModalOpen(true)}
-                  className="text-xs font-semibold text-white/80 hover:text-white bg-white/5 hover:bg-white/10 px-3 py-1.5 rounded-lg border border-white/10 transition-colors cursor-pointer"
+                  className="text-xs font-medium text-zinc-300 hover:text-white bg-zinc-900 hover:bg-zinc-800 px-3 py-1.5 rounded-lg border border-zinc-800 transition-colors cursor-pointer"
                 >
-                  Change Comparison
+                  Change Baseline
                 </button>
               </div>
             </div>
@@ -298,7 +294,7 @@ export default function App() {
               onSelectTab={(tab) => setActiveTab(tab)}
             />
 
-            {/* User List Table */}
+            {/* User List Table with HTML/CSV Export */}
             <UserListTable
               stats={dashboardStats}
               activeTab={activeTab}
@@ -310,24 +306,26 @@ export default function App() {
         {/* Loading Spinner */}
         {isLoading && !dashboardStats && (
           <div className="py-24 text-center">
-            <RefreshCw className="w-8 h-8 mx-auto animate-spin text-[#dc2743] mb-3" />
-            <p className="text-sm font-medium text-white/60">
-              Analyzing follower graph and calculating insights...
+            <RefreshCw className="w-6 h-6 mx-auto animate-spin text-zinc-400 mb-3" />
+            <p className="text-xs font-medium text-zinc-400">
+              Analyzing follower graph and calculating metrics...
             </p>
           </div>
         )}
       </main>
 
-      {/* Footer */}
-      <footer className="mt-auto border-t border-white/10 bg-[#121212] py-6">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-white/40">
+      {/* Footer (Resend minimalist subtle footer) */}
+      <footer className="mt-auto border-t border-zinc-900 bg-black py-6">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-zinc-500 font-mono">
           <div className="flex items-center gap-2">
-            <span className="font-semibold text-white/70">Instagram Follower Insights</span>
+            <span className="text-zinc-300 font-sans font-medium">Follower Insights</span>
             <span>&bull;</span>
-            <span>PostgreSQL &amp; Docker Containerized</span>
+            <span>HTML &amp; CSV Exports</span>
+            <span>&bull;</span>
+            <span>Node.js / TypeScript &amp; PostgreSQL</span>
           </div>
           <div>
-            Data is parsed locally and never sent to external third parties.
+            Data is parsed locally and never shared with third parties.
           </div>
         </div>
       </footer>

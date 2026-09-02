@@ -1,3 +1,5 @@
+version: '3.8'
+
 services:
   postgres:
     image: postgres:16-alpine
@@ -34,7 +36,7 @@ services:
       PGPASSWORD: ${POSTGRES_PASSWORD:-postgres}
       PGDATABASE: ${POSTGRES_DB:-instagram_insights}
     ports:
-      - "1345:5000"
+      - "5000:5000"
     depends_on:
       postgres:
         condition: service_healthy

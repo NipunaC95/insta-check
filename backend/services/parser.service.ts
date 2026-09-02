@@ -1,18 +1,13 @@
 import AdmZip from 'adm-zip';
-
-export interface ExtractedUser {
-  username: string;
-  profile_url: string;
-  profile_pic_url?: string | null;
-  timestamp?: number | null;
-}
+import { ExtractedUser } from '../types/index.ts';
 
 /**
- * Extracts a clean Instagram username from a string or link
+ * Sanitizes and normalizes an Instagram username or URL
  */
 export function sanitizeUsername(raw: string): string {
   if (!raw) return '';
   let cleaned = raw.trim();
+
   // If it's a URL, extract the path segment
   if (cleaned.startsWith('http://') || cleaned.startsWith('https://')) {
     try {
@@ -22,11 +17,11 @@ export function sanitizeUsername(raw: string): string {
         cleaned = segments[0];
       }
     } catch {
-      // Fallback regex
       const match = cleaned.match(/instagram\.com\/([a-zA-Z0-9._]+)/i);
       if (match) cleaned = match[1];
     }
   }
+
   // Strip leading @ or trailing slashes
   cleaned = cleaned.replace(/^@+/, '').replace(/\/+$/, '');
   return cleaned.toLowerCase();
@@ -40,9 +35,9 @@ export function parseInstagramJson(rawJson: string | object): ExtractedUser[] {
   if (typeof rawJson === 'string') {
     try {
       data = JSON.parse(rawJson);
-    } catch (err) {
-      console.error('Failed to parse JSON string:', err);
-      return [];
+    } catch {
+      // If it fails to parse as JSON, check if it's HTML
+      return parseInstagramHtml(rawJson);
     }
   } else {
     data = rawJson;
@@ -51,7 +46,6 @@ export function parseInstagramJson(rawJson: string | object): ExtractedUser[] {
   const results: ExtractedUser[] = [];
   const seenUsernames = new Set<string>();
 
-  // Helper to extract user from Instagram item object
   const processItem = (item: any) => {
     if (!item) return;
 
@@ -74,7 +68,7 @@ export function parseInstagramJson(rawJson: string | object): ExtractedUser[] {
       }
     }
 
-    // Fallbacks if string_list_data wasn't populated or value was empty
+    // Fallbacks if string_list_data wasn't populated
     if (!username && item.title) {
       username = item.title;
     }
@@ -90,7 +84,6 @@ export function parseInstagramJson(rawJson: string | object): ExtractedUser[] {
       username = sanitizeUsername(profileUrl);
     }
 
-    // Clean username
     username = sanitizeUsername(username);
     if (!username) return;
 
@@ -109,13 +102,11 @@ export function parseInstagramJson(rawJson: string | object): ExtractedUser[] {
     }
   };
 
-  // Determine root container
   if (Array.isArray(data)) {
     for (const item of data) {
       processItem(item);
     }
   } else if (data && typeof data === 'object') {
-    // Check known wrapped fields
     if (Array.isArray(data.relationships_followers)) {
       for (const item of data.relationships_followers) {
         processItem(item);
@@ -133,7 +124,6 @@ export function parseInstagramJson(rawJson: string | object): ExtractedUser[] {
         processItem(item);
       }
     } else {
-      // Traverse keys if it's an object mapping
       for (const key of Object.keys(data)) {
         const val = data[key];
         if (Array.isArray(val)) {
@@ -151,7 +141,60 @@ export function parseInstagramJson(rawJson: string | object): ExtractedUser[] {
 }
 
 /**
- * Extracts followers and following lists from a ZIP buffer
+ * Parses Instagram HTML export files (e.g. followers_1.html, following.html)
+ */
+export function parseInstagramHtml(htmlContent: string): ExtractedUser[] {
+  const results: ExtractedUser[] = [];
+  const seenUsernames = new Set<string>();
+
+  // Regular expression to match links pointing to instagram profiles or text inside links
+  // Patterns like: <a target="_blank" href="https://www.instagram.com/username">username</a>
+  const linkRegex = /<a\s+[^>]*href=["']([^"']+)["'][^>]*>(.*?)<\/a>/gis;
+  let match: RegExpExecArray | null;
+
+  while ((match = linkRegex.exec(htmlContent)) !== null) {
+    const href = match[1] || '';
+    const innerText = (match[2] || '').replace(/<[^>]+>/g, '').trim();
+
+    let username = '';
+    if (href.includes('instagram.com')) {
+      username = sanitizeUsername(href);
+    }
+    if (!username && innerText) {
+      username = sanitizeUsername(innerText);
+    }
+
+    if (username && !seenUsernames.has(username)) {
+      // Exclude common Instagram UI links (like /legal, /about, etc.)
+      const excluded = ['about', 'legal', 'explore', 'reels', 'direct', 'accounts', 'developer', 'terms', 'privacy'];
+      if (!excluded.includes(username)) {
+        seenUsernames.add(username);
+        results.push({
+          username,
+          profile_url: href.startsWith('http') ? href : `https://www.instagram.com/${username}/`,
+          profile_pic_url: null,
+          timestamp: null,
+        });
+      }
+    }
+  }
+
+  return results;
+}
+
+/**
+ * Universal parser that handles either JSON or HTML formatted Instagram export strings
+ */
+export function parseInstagramData(content: string): ExtractedUser[] {
+  const trimmed = content.trim();
+  if (trimmed.startsWith('<') || trimmed.includes('<!DOCTYPE') || trimmed.includes('<html')) {
+    return parseInstagramHtml(trimmed);
+  }
+  return parseInstagramJson(trimmed);
+}
+
+/**
+ * Extracts followers and following lists from a ZIP archive buffer
  */
 export function parseZipExport(buffer: Buffer): {
   followers: ExtractedUser[];
@@ -160,9 +203,6 @@ export function parseZipExport(buffer: Buffer): {
   const zip = new AdmZip(buffer);
   const zipEntries = zip.getEntries();
 
-  let followers: ExtractedUser[] = [];
-  let following: ExtractedUser[] = [];
-
   const followersMap = new Map<string, ExtractedUser>();
   const followingMap = new Map<string, ExtractedUser>();
 
@@ -170,11 +210,14 @@ export function parseZipExport(buffer: Buffer): {
     if (entry.isDirectory) continue;
     const entryName = entry.entryName.toLowerCase();
 
-    // Check followers file (e.g. followers_1.json, followers.json, etc.)
-    if (entryName.includes('follower') && entryName.endsWith('.json')) {
+    // Check followers file (e.g. followers_1.json, followers.json, followers_1.html, etc.)
+    if (
+      entryName.includes('follower') &&
+      (entryName.endsWith('.json') || entryName.endsWith('.html') || entryName.endsWith('.htm'))
+    ) {
       try {
         const text = entry.getData().toString('utf8');
-        const list = parseInstagramJson(text);
+        const list = parseInstagramData(text);
         for (const u of list) {
           followersMap.set(u.username, u);
         }
@@ -183,11 +226,14 @@ export function parseZipExport(buffer: Buffer): {
       }
     }
 
-    // Check following file (e.g. following.json, relationships_following.json)
-    if (entryName.includes('following') && entryName.endsWith('.json')) {
+    // Check following file (e.g. following.json, following.html, relationships_following.json)
+    if (
+      entryName.includes('following') &&
+      (entryName.endsWith('.json') || entryName.endsWith('.html') || entryName.endsWith('.htm'))
+    ) {
       try {
         const text = entry.getData().toString('utf8');
-        const list = parseInstagramJson(text);
+        const list = parseInstagramData(text);
         for (const u of list) {
           followingMap.set(u.username, u);
         }
@@ -197,8 +243,8 @@ export function parseZipExport(buffer: Buffer): {
     }
   }
 
-  followers = Array.from(followersMap.values());
-  following = Array.from(followingMap.values());
-
-  return { followers, following };
+  return {
+    followers: Array.from(followersMap.values()),
+    following: Array.from(followingMap.values()),
+  };
 }
