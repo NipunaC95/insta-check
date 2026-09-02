@@ -15,7 +15,14 @@ app.use(express.urlencoded({ extended: true, limit: '15mb' }));
 // Mount API Routes under /api
 app.use('/api', apiRouter);
 
-// Centralized error handler for API errors
+// Catch any unhandled /api requests and return JSON 404 - prevents falling through to Vite SPA HTML
+app.use('/api', (req: Request, res: Response) => {
+  res.status(404).json({
+    error: `API endpoint not found: ${req.method} ${req.originalUrl}`,
+  });
+});
+
+// Centralized error handler for API errors - guarantees JSON response
 app.use('/api', errorHandler);
 
 export async function startServer() {

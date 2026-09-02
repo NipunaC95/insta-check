@@ -1,31 +1,75 @@
 import { UploadSession, DashboardStats, UploadResponse } from '../types/index.ts';
 
-export async function fetchUploads(): Promise<UploadSession[]> {
-  const res = await fetch('/api/uploads');
-  if (!res.ok) {
-    throw new Error(`Failed to load sessions: ${res.statusText}`);
+/**
+ * Robust JSON fetch wrapper that guards against HTML error pages or SPA fallback responses.
+ * Prevents "Unexpected token '<', "<!doctype "..." syntax errors on the client.
+ */
+async function safeFetchJson<T>(url: string, options?: RequestInit): Promise<T> {
+  let res: Response;
+  try {
+    res = await fetch(url, options);
+  } catch (networkErr: any) {
+    throw new Error(`Network connection failed: ${networkErr.message || 'Unable to connect to server.'}`);
   }
-  return res.json();
+
+  const contentType = res.headers.get('content-type') || '';
+  const isJson = contentType.toLowerCase().includes('application/json');
+
+  if (!isJson) {
+    const rawText = await res.text().catch(() => '');
+    const trimmed = rawText.trim();
+
+    // Check if the server or reverse-proxy returned an HTML document (e.g. 404, 502, 504, or SPA fallback)
+    if (trimmed.startsWith('<') || trimmed.toLowerCase().includes('<!doctype')) {
+      if (!res.ok) {
+        throw new Error(`Server returned HTTP ${res.status} (${res.statusText || 'Error'}). Please try again.`);
+      }
+      throw new Error(`API endpoint "${url}" returned an HTML page instead of JSON data. Please verify the server is running.`);
+    }
+
+    if (!res.ok) {
+      throw new Error(trimmed || `Request failed with HTTP status ${res.status}`);
+    }
+
+    try {
+      return JSON.parse(trimmed) as T;
+    } catch {
+      throw new Error(`Server returned a non-JSON response from ${url}`);
+    }
+  }
+
+  let data: any;
+  try {
+    data = await res.json();
+  } catch (parseErr: any) {
+    throw new Error(`Could not parse JSON response from server: ${parseErr.message}`);
+  }
+
+  if (!res.ok) {
+    throw new Error(data?.error || `Request to ${url} failed with status ${res.status}`);
+  }
+
+  return data as T;
+}
+
+export async function fetchUploads(): Promise<UploadSession[]> {
+  return safeFetchJson<UploadSession[]>('/api/uploads');
 }
 
 export async function fetchDashboard(uploadId: number, compareWithId?: number | null): Promise<DashboardStats> {
-  const url = compareWithId
+  if (!uploadId || isNaN(uploadId)) {
+    throw new Error('Valid upload session ID is required to fetch insights.');
+  }
+
+  const url = compareWithId && !isNaN(compareWithId)
     ? `/api/dashboard/${uploadId}?compareWithId=${compareWithId}`
     : `/api/dashboard/${uploadId}`;
-  const res = await fetch(url);
-  if (!res.ok) {
-    const errorData = await res.json().catch(() => null);
-    throw new Error(errorData?.error || `Failed to fetch dashboard data (${res.status})`);
-  }
-  return res.json();
+
+  return safeFetchJson<DashboardStats>(url);
 }
 
 export async function deleteUploadSession(uploadId: number): Promise<void> {
-  const res = await fetch(`/api/uploads/${uploadId}`, { method: 'DELETE' });
-  if (!res.ok) {
-    const errData = await res.json().catch(() => null);
-    throw new Error(errData?.error || 'Failed to delete session');
-  }
+  await safeFetchJson<{ success: boolean }>(`/api/uploads/${uploadId}`, { method: 'DELETE' });
 }
 
 export async function createDemoSessions(): Promise<{
@@ -33,22 +77,17 @@ export async function createDemoSessions(): Promise<{
   currentUploadId: number;
   message: string;
 }> {
-  const res = await fetch('/api/demo', { method: 'POST' });
-  if (!res.ok) {
-    const errData = await res.json().catch(() => null);
-    throw new Error(errData?.error || 'Failed to generate demo sessions');
-  }
-  return res.json();
+  return safeFetchJson<{
+    previousUploadId: number;
+    currentUploadId: number;
+    message: string;
+  }>('/api/demo', { method: 'POST' });
 }
 
 export async function uploadExportFiles(formData: FormData): Promise<UploadResponse> {
-  const res = await fetch('/api/upload', {
+  return safeFetchJson<UploadResponse>('/api/upload', {
     method: 'POST',
     body: formData,
   });
-  const data = await res.json();
-  if (!res.ok) {
-    throw new Error(data.error || 'Upload failed');
-  }
-  return data;
 }
+
