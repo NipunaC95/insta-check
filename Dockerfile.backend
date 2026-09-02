@@ -23,13 +23,13 @@ FROM node:20-alpine AS runner
 WORKDIR /app
 
 ENV NODE_ENV=production
-ENV PORT=5000
+ENV PORT=5034
 
 COPY package*.json ./
 RUN npm ci --omit=dev
 
 COPY --from=builder /app/dist ./dist
 
-EXPOSE 5000
+EXPOSE 5034
 
 CMD ["node", "dist/server.cjs"]
