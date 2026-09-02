@@ -1,7 +1,7 @@
 import { Request, Response } from 'express';
 import { dbService } from '../services/db.service.ts';
-import { parseInstagramData, parseZipExport } from '../services/parser.service.ts';
-import { ExtractedUser } from '../types/index.ts';
+import { parseInstagramData, parseInstagramJson, parseZipExport, detectInstagramDataRole } from '../services/parser.service.ts';
+import type { ExtractedUser } from '../types/index.ts';
 
 export async function getUploads(req: Request, res: Response) {
   try {
@@ -70,7 +70,7 @@ export async function handleUpload(req: Request, res: Response) {
         });
       }
     } else {
-      // Look for followers and following files among uploaded files
+      // Collect all uploaded individual files
       const allUploadedFiles: Express.Multer.File[] = [];
       for (const field of Object.keys(files)) {
         allUploadedFiles.push(...files[field]);
@@ -79,30 +79,42 @@ export async function handleUpload(req: Request, res: Response) {
       for (const file of allUploadedFiles) {
         const lowerName = file.originalname.toLowerCase();
         const fileContent = file.buffer.toString('utf8');
+        const role = detectInstagramDataRole(fileContent);
 
-        if (lowerName.includes('follower') || file.fieldname === 'followers') {
-          const parsed = parseInstagramData(fileContent);
-          followers.push(...parsed);
-        } else if (lowerName.includes('following') || file.fieldname === 'following') {
-          const parsed = parseInstagramData(fileContent);
-          following.push(...parsed);
-        } else {
+        if (role === 'both') {
           try {
             const obj = JSON.parse(fileContent);
             if (obj.relationships_followers) {
-              followers.push(...parseInstagramData(fileContent));
-            } else if (obj.relationships_following) {
-              following.push(...parseInstagramData(fileContent));
+              followers.push(...parseInstagramJson(obj.relationships_followers));
+            }
+            if (obj.relationships_following) {
+              following.push(...parseInstagramJson(obj.relationships_following));
             }
           } catch {
-            // Check if HTML document contains follower or following keywords
-            if (fileContent.includes('instagram.com')) {
-              const parsed = parseInstagramData(fileContent);
-              if (lowerName.includes('follower')) {
-                followers.push(...parsed);
-              } else {
-                following.push(...parsed);
-              }
+            const parsed = parseInstagramData(fileContent);
+            followers.push(...parsed);
+          }
+        } else if (role === 'followers') {
+          const parsed = parseInstagramData(fileContent);
+          followers.push(...parsed);
+        } else if (role === 'following') {
+          const parsed = parseInstagramData(fileContent);
+          following.push(...parsed);
+        } else {
+          // If role is unknown from content inspection, fallback to name/fieldname
+          if (lowerName.includes('follower') || file.fieldname === 'followers') {
+            const parsed = parseInstagramData(fileContent);
+            followers.push(...parsed);
+          } else if (lowerName.includes('following') || file.fieldname === 'following') {
+            const parsed = parseInstagramData(fileContent);
+            following.push(...parsed);
+          } else {
+            // Heuristic fallback
+            const parsed = parseInstagramData(fileContent);
+            if (followers.length === 0) {
+              followers.push(...parsed);
+            } else {
+              following.push(...parsed);
             }
           }
         }

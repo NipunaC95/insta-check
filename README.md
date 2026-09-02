@@ -17,14 +17,14 @@ A full-stack web application that allows users to upload their Instagram data ex
 - [Docker Compose](https://docs.docker.com/compose/) (v2+)
 
 ### 1. Production Mode
-Run the complete stack (PostgreSQL, Express Backend on port 5034, and Nginx-served React Frontend on port 80):
+Run the complete stack (PostgreSQL, Express Backend on port 5000, and Nginx-served React Frontend on port 80):
 
 ```bash
 docker-compose up --build -d
 ```
 
 - **Frontend Application**: Open [http://localhost:80](http://localhost:80) or [http://localhost](http://localhost)
-- **Backend API**: [http://localhost:5034/api/health](http://localhost:5034/api/health)
+- **Backend API**: [http://localhost:5000/api/health](http://localhost:5000/api/health)
 - **PostgreSQL Database**: Accessible on port `5432` (`postgres:postgres@localhost:5432/instagram_insights`)
 
 To stop the containers:

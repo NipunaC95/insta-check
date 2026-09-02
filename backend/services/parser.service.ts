@@ -1,34 +1,93 @@
 import AdmZip from 'adm-zip';
-import { ExtractedUser } from '../types/index.ts';
+import type { ExtractedUser } from '../types/index.ts';
 
 /**
- * Sanitizes and normalizes an Instagram username or URL
+ * Sanitizes and normalizes an Instagram username or URL.
+ * Accurately extracts the handle from URLs, including Instagram's mobile `_u/<username>` redirect paths.
  */
 export function sanitizeUsername(raw: string): string {
   if (!raw) return '';
   let cleaned = raw.trim();
 
-  // If it's a URL, extract the path segment
-  if (cleaned.startsWith('http://') || cleaned.startsWith('https://')) {
+  // If it's a URL or contains an Instagram web link, extract the actual username path segment
+  if (cleaned.startsWith('http://') || cleaned.startsWith('https://') || cleaned.includes('instagram.com/')) {
     try {
-      const parsedUrl = new URL(cleaned);
+      const urlStr = cleaned.startsWith('http') ? cleaned : `https://${cleaned}`;
+      const parsedUrl = new URL(urlStr);
       const segments = parsedUrl.pathname.split('/').filter(Boolean);
       if (segments.length > 0) {
-        cleaned = segments[0];
+        // Instagram mobile exports frequently use /_u/<username> or /u/<username>
+        if ((segments[0] === '_u' || segments[0] === 'u') && segments.length > 1) {
+          cleaned = segments[1];
+        } else {
+          cleaned = segments[0];
+        }
       }
     } catch {
-      const match = cleaned.match(/instagram\.com\/([a-zA-Z0-9._]+)/i);
+      const match = cleaned.match(/instagram\.com\/(?:_u\/)?([a-zA-Z0-9._]+)/i);
       if (match) cleaned = match[1];
     }
   }
 
-  // Strip leading @ or trailing slashes
-  cleaned = cleaned.replace(/^@+/, '').replace(/\/+$/, '');
+  // Strip query strings, hash fragments, leading @, and trailing slashes
+  cleaned = cleaned.split('?')[0].split('#')[0];
+  cleaned = cleaned.replace(/^@+/, '').replace(/\/+$/, '').trim();
   return cleaned.toLowerCase();
 }
 
 /**
- * Parses raw Instagram JSON structure for followers or following
+ * Detects whether a parsed object or string content represents followers, following, or both
+ */
+export function detectInstagramDataRole(content: string | object): 'followers' | 'following' | 'both' | 'unknown' {
+  let data: any = content;
+  if (typeof content === 'string') {
+    try {
+      data = JSON.parse(content);
+    } catch {
+      const lower = content.toLowerCase();
+      if (lower.includes('following')) return 'following';
+      if (lower.includes('follower')) return 'followers';
+      return 'unknown';
+    }
+  }
+
+  if (!data) return 'unknown';
+
+  if (typeof data === 'object' && !Array.isArray(data)) {
+    if (data.relationships_following && data.relationships_followers) return 'both';
+    if (data.relationships_following || data.following) return 'following';
+    if (data.relationships_followers || data.followers) return 'followers';
+  }
+
+  if (Array.isArray(data)) {
+    // Check elements in the array
+    for (const item of data.slice(0, 10)) {
+      if (item && typeof item === 'object') {
+        // Followers export format in Meta exports typically includes media_list_data and empty title
+        if ('media_list_data' in item) return 'followers';
+        // Check string_list_data hrefs for following patterns
+        if (Array.isArray(item.string_list_data) && item.string_list_data.length > 0) {
+          const first = item.string_list_data[0];
+          if (first && first.href && first.href.includes('/_u/')) {
+            return 'following';
+          }
+        }
+      }
+    }
+    // Meta standard array export for connections is followers_1.json
+    return 'followers';
+  }
+
+  return 'unknown';
+}
+
+/**
+ * Parses raw Instagram JSON structure for followers or following.
+ * Supports:
+ * - Direct array of items: [{ title: "", media_list_data: [], string_list_data: [{ href, value, timestamp }] }]
+ * - Relationships object: { relationships_following: [{ title: "username", string_list_data: [{ href, timestamp }] }] }
+ * - Relationships object: { relationships_followers: [ ... ] }
+ * - Root-level properties: { followers: [ ... ] }, { following: [ ... ] }
  */
 export function parseInstagramJson(rawJson: string | object): ExtractedUser[] {
   let data: any;
@@ -47,28 +106,29 @@ export function parseInstagramJson(rawJson: string | object): ExtractedUser[] {
   const seenUsernames = new Set<string>();
 
   const processItem = (item: any) => {
-    if (!item) return;
+    if (!item || typeof item !== 'object') return;
 
     let username = '';
-    let profileUrl = '';
     let timestamp: number | null = null;
     let profilePicUrl: string | null = item.profile_pic_url || null;
 
     // Check string_list_data (standard Instagram export format)
     if (Array.isArray(item.string_list_data) && item.string_list_data.length > 0) {
-      const first = item.string_list_data[0];
-      if (first.value) {
-        username = first.value;
-      }
-      if (first.href) {
-        profileUrl = first.href;
-      }
-      if (first.timestamp) {
-        timestamp = Number(first.timestamp);
+      for (const entry of item.string_list_data) {
+        if (!entry) continue;
+        if (entry.value && !username) {
+          username = entry.value;
+        }
+        if (entry.href && !username) {
+          username = sanitizeUsername(entry.href);
+        }
+        if (entry.timestamp && !timestamp) {
+          timestamp = Number(entry.timestamp);
+        }
       }
     }
 
-    // Fallbacks if string_list_data wasn't populated
+    // Fallbacks if string_list_data didn't yield a username
     if (!username && item.title) {
       username = item.title;
     }
@@ -78,24 +138,21 @@ export function parseInstagramJson(rawJson: string | object): ExtractedUser[] {
     if (!username && item.value) {
       username = item.value;
     }
-
-    // If profileUrl exists but username doesn't
-    if (!username && profileUrl) {
-      username = sanitizeUsername(profileUrl);
+    if (!username && item.name) {
+      username = item.name;
     }
 
     username = sanitizeUsername(username);
     if (!username) return;
 
-    if (!profileUrl) {
-      profileUrl = `https://www.instagram.com/${username}/`;
-    }
+    // Build canonical Instagram profile URL
+    const canonicalProfileUrl = `https://www.instagram.com/${username}/`;
 
     if (!seenUsernames.has(username)) {
       seenUsernames.add(username);
       results.push({
         username,
-        profile_url: profileUrl,
+        profile_url: canonicalProfileUrl,
         profile_pic_url: profilePicUrl,
         timestamp,
       });
@@ -124,6 +181,7 @@ export function parseInstagramJson(rawJson: string | object): ExtractedUser[] {
         processItem(item);
       }
     } else {
+      // Traverse keys in case of arbitrary wrapper objects
       for (const key of Object.keys(data)) {
         const val = data[key];
         if (Array.isArray(val)) {
