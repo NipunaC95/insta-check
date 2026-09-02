@@ -1,43 +1,44 @@
-export interface InstagramUser {
+export interface UserRecord {
+  id?: number;
   username: string;
-  profileUrl: string;
+  profile_url: string;
+  profile_pic_url?: string | null;
   timestamp?: number | null;
 }
 
-export interface Snapshot {
+export interface UploadSession {
   id: number;
-  uploadedAt: string;
-  note: string;
-  followers: InstagramUser[];
-  following: InstagramUser[];
+  uploaded_at: string;
+  label?: string | null;
+  followers_count: number;
+  following_count: number;
 }
 
-export interface AnalysisStats {
+export interface DashboardStats {
+  currentUpload: UploadSession;
+  previousUpload?: UploadSession | null;
+  totalFollowers: number;
+  totalFollowing: number;
+  unfollowersCount: number;
+  nonFollowersBackCount: number;
+  newFollowersCount: number;
+  fansCount: number;
+  mutualsCount: number;
+  unfollowers: UserRecord[];
+  nonFollowersBack: UserRecord[];
+  newFollowers: UserRecord[];
+  fans: UserRecord[];
+  mutuals: UserRecord[];
+  allFollowers: UserRecord[];
+  allFollowing: UserRecord[];
+}
+
+export interface UploadResponse {
+  success: boolean;
+  message: string;
+  uploadId: number;
   followersCount: number;
   followingCount: number;
-  mutualCount: number;
-  notFollowingBackCount: number;
-  fansCount: number;
+  label?: string | null;
+  uploadedAt: string;
 }
-
-export interface TemporalDiff {
-  unfollowers: InstagramUser[];
-  newFollowers: InstagramUser[];
-  unfollowedByYou: InstagramUser[];
-  newFollowing: InstagramUser[];
-}
-
-export interface AnalysisResult {
-  snapshot: Snapshot;
-  prevSnapshot: Snapshot | null;
-  stats: AnalysisStats;
-  notFollowingBack: InstagramUser[];
-  fans: InstagramUser[];
-  mutuals: InstagramUser[];
-  unfollowers: InstagramUser[];
-  newFollowers: InstagramUser[];
-  unfollowedByYou: InstagramUser[];
-  newFollowing: InstagramUser[];
-}
-
-export type ActiveTab = 'upload' | 'results' | 'history' | 'guide';

@@ -1,115 +1,110 @@
 import React from 'react';
-import { ActiveTab, Snapshot } from '../types';
-import { Users, History, UploadCloud, HelpCircle, Sparkles } from 'lucide-react';
+import { Upload, History, HelpCircle, Sparkles, RefreshCw, Instagram } from 'lucide-react';
+import { UploadSession } from '../types.ts';
 
 interface NavbarProps {
-  activeTab: ActiveTab;
-  setActiveTab: (tab: ActiveTab) => void;
-  latestSnapshot?: Snapshot;
+  currentSession: UploadSession | null;
+  onOpenUpload: () => void;
+  onOpenSessions: () => void;
+  onOpenGuide: () => void;
   onLoadDemo: () => void;
-  snapshotsCount: number;
+  onRefresh: () => void;
+  isLoading: boolean;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
-  activeTab,
-  setActiveTab,
-  latestSnapshot,
+  currentSession,
+  onOpenUpload,
+  onOpenSessions,
+  onOpenGuide,
   onLoadDemo,
-  snapshotsCount,
+  onRefresh,
+  isLoading,
 }) => {
   return (
-    <header className="bg-slate-950 border-b border-slate-800 sticky top-0 z-50">
-      <div className="max-w-6xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between">
-        {/* Brand */}
-        <div className="flex items-center space-x-3">
-          <button
-            onClick={() => setActiveTab('upload')}
-            className="flex items-center space-x-2.5 text-left group focus:outline-none"
-          >
-            <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-amber-500 via-rose-500 to-indigo-600 p-[2px] shadow-sm">
-              <div className="w-full h-full bg-slate-950 rounded-[10px] flex items-center justify-center group-hover:bg-slate-900 transition-colors">
-                <Users className="w-5 h-5 text-rose-400 group-hover:scale-110 transition-transform" />
-              </div>
+    <header className="sticky top-0 z-30 bg-[#121212]/95 backdrop-blur-md border-b border-white/10">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div className="flex items-center justify-between h-16">
+          {/* Logo & Brand */}
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-[#f09433] via-[#dc2743] to-[#bc1888] flex items-center justify-center text-white shadow-lg shadow-pink-950/30">
+              <Instagram className="w-5 h-5" />
             </div>
             <div>
-              <span className="text-base font-bold text-slate-100 tracking-tight block">
-                IG Snapshot Tracker
-              </span>
-              <span className="text-[11px] font-medium text-slate-400 block -mt-0.5">
-                Follower & Unfollower Analytics
-              </span>
+              <div className="flex items-center gap-2">
+                <span className="font-bold text-lg text-white tracking-tight">
+                  Follower Insights
+                </span>
+                <span className="hidden sm:inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-white/10 text-white/80 border border-white/10">
+                  Instagram
+                </span>
+              </div>
+              {currentSession && (
+                <p className="text-xs text-white/40 truncate max-w-xs sm:max-w-md">
+                  Active: <span className="font-medium text-white/80">{currentSession.label || `Upload #${currentSession.id}`}</span>
+                  <span className="text-white/40 ml-1">
+                    ({new Date(currentSession.uploaded_at).toLocaleDateString()})
+                  </span>
+                </p>
+              )}
             </div>
-          </button>
-        </div>
+          </div>
 
-        {/* Navigation items */}
-        <nav className="flex items-center space-x-1 sm:space-x-2">
-          <button
-            onClick={() => setActiveTab('upload')}
-            className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${
-              activeTab === 'upload'
-                ? 'bg-indigo-600 text-white shadow-sm'
-                : 'text-slate-300 hover:text-white hover:bg-slate-900'
-            }`}
-          >
-            <UploadCloud className="w-4 h-4" />
-            <span className="hidden sm:inline">Upload</span>
-          </button>
-
-          {latestSnapshot && (
+          {/* Action Buttons */}
+          <div className="flex items-center gap-2 sm:gap-3">
             <button
-              onClick={() => setActiveTab('results')}
-              className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${
-                activeTab === 'results'
-                  ? 'bg-indigo-600 text-white shadow-sm'
-                  : 'text-slate-300 hover:text-white hover:bg-slate-900'
-              }`}
+              id="refresh-btn"
+              type="button"
+              onClick={onRefresh}
+              disabled={isLoading}
+              title="Refresh Dashboard"
+              className="p-2 text-white/60 hover:text-white hover:bg-white/10 rounded-lg transition-colors cursor-pointer"
             >
-              <Users className="w-4 h-4" />
-              <span>Results</span>
+              <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin text-[#dc2743]' : ''}`} />
             </button>
-          )}
 
-          <button
-            onClick={() => setActiveTab('history')}
-            className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-all relative ${
-              activeTab === 'history'
-                ? 'bg-indigo-600 text-white shadow-sm'
-                : 'text-slate-300 hover:text-white hover:bg-slate-900'
-            }`}
-          >
-            <History className="w-4 h-4" />
-            <span>History</span>
-            {snapshotsCount > 0 && (
-              <span className="ml-1 px-1.5 py-0.2 rounded-full text-[10px] font-bold bg-slate-800 text-slate-300 border border-slate-700">
-                {snapshotsCount}
-              </span>
-            )}
-          </button>
-
-          <button
-            onClick={() => setActiveTab('guide')}
-            className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${
-              activeTab === 'guide'
-                ? 'bg-indigo-600 text-white shadow-sm'
-                : 'text-slate-400 hover:text-white hover:bg-slate-900'
-            }`}
-          >
-            <HelpCircle className="w-4 h-4" />
-            <span className="hidden md:inline">How to Export</span>
-          </button>
-
-          {snapshotsCount === 0 && (
             <button
+              id="demo-data-btn"
+              type="button"
               onClick={onLoadDemo}
-              className="ml-2 flex items-center space-x-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-gradient-to-r from-amber-500/20 to-rose-500/20 text-rose-300 border border-rose-500/40 hover:bg-rose-500/30 transition-all"
-              title="Load sample snapshot data to preview the tool"
+              disabled={isLoading}
+              className="hidden md:inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-[#f09433] bg-[#1a1612] hover:bg-[#251f19] border border-[#f09433]/30 rounded-lg transition-colors cursor-pointer"
             >
-              <Sparkles className="w-3.5 h-3.5 text-amber-400" />
-              <span>Load Demo Data</span>
+              <Sparkles className="w-3.5 h-3.5 text-[#f09433]" />
+              Load Demo Data
             </button>
-          )}
-        </nav>
+
+            <button
+              id="guide-btn"
+              type="button"
+              onClick={onOpenGuide}
+              title="How to export your Instagram data"
+              className="p-2 text-white/60 hover:text-white hover:bg-white/10 rounded-lg transition-colors cursor-pointer"
+            >
+              <HelpCircle className="w-5 h-5" />
+            </button>
+
+            <button
+              id="history-btn"
+              type="button"
+              onClick={onOpenSessions}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs sm:text-sm font-medium text-white/80 bg-white/5 hover:bg-white/10 border border-white/10 rounded-lg transition-colors cursor-pointer"
+            >
+              <History className="w-4 h-4 text-white/50" />
+              <span className="hidden sm:inline">Sessions</span>
+            </button>
+
+            <button
+              id="upload-primary-btn"
+              type="button"
+              onClick={onOpenUpload}
+              className="inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs sm:text-sm font-semibold text-white bg-gradient-to-r from-[#f09433] via-[#dc2743] to-[#bc1888] hover:opacity-95 rounded-lg shadow-md shadow-pink-950/40 transition-all transform active:scale-95 cursor-pointer"
+            >
+              <Upload className="w-4 h-4" />
+              <span>Upload Export</span>
+            </button>
+          </div>
+        </div>
       </div>
     </header>
   );

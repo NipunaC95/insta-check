@@ -1,0 +1,36 @@
+# ==========================================================
+# Backend Dockerfile (Node.js + Express)
+# ==========================================================
+FROM node:20-alpine AS builder
+
+WORKDIR /app
+
+# Install build dependencies
+COPY package*.json ./
+RUN npm ci
+
+# Copy server code
+COPY server.ts ./
+COPY server/ ./server/
+COPY src/types.ts ./src/types.ts
+COPY tsconfig.json ./
+
+# Build backend using esbuild into standalone CJS bundle
+RUN npx esbuild server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs
+
+# Production runtime stage
+FROM node:20-alpine AS runner
+
+WORKDIR /app
+
+ENV NODE_ENV=production
+ENV PORT=5000
+
+COPY package*.json ./
+RUN npm ci --omit=dev
+
+COPY --from=builder /app/dist ./dist
+
+EXPOSE 5000
+
+CMD ["node", "dist/server.cjs"]
