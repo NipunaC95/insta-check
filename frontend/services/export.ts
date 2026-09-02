@@ -59,28 +59,38 @@ export function exportToHTML(
     .map((user, idx) => {
       const uSafe = escapeHtml(user.username);
       const urlSafe = escapeHtml(user.profile_url);
-      const initial = uSafe.slice(0, 2).toUpperCase();
+      const picUrl = user.profile_pic_url
+        ? escapeHtml(user.profile_pic_url)
+        : `https://unavatar.io/instagram/${uSafe}`;
+      const fallbackUrl = `https://ui-avatars.com/api/?name=${uSafe}&background=18181b&color=e4e4e7&bold=true`;
+
       return `
       <tr class="user-row" data-username="${uSafe.toLowerCase()}">
         <td class="col-num">${idx + 1}</td>
         <td>
-          <div class="user-cell">
-            <div class="user-avatar">${initial}</div>
-            <div class="user-meta">
-              <span class="user-handle">@${uSafe}</span>
-              <span class="user-sub">instagram.com/${uSafe}</span>
+          <a href="${urlSafe}" target="_blank" rel="noopener noreferrer" class="user-link">
+            <div class="user-cell">
+              <img src="${picUrl}" alt="${uSafe}" class="user-avatar-img" onerror="this.onerror=null;this.src='${fallbackUrl}';" />
+              <div class="user-meta">
+                <span class="user-handle">@${uSafe}</span>
+                <span class="user-sub">instagram.com/${uSafe}</span>
+              </div>
             </div>
-          </div>
+          </a>
         </td>
         <td class="col-url">
           <a href="${urlSafe}" target="_blank" rel="noopener noreferrer" class="link-url">
-            ${urlSafe}
+            <img src="${picUrl}" alt="${uSafe}" class="inline-avatar-img" onerror="this.onerror=null;this.src='${fallbackUrl}';" />
+            <span>${urlSafe}</span>
           </a>
         </td>
         <td class="col-action">
           <div class="btn-group">
             <button type="button" class="btn-sm" onclick="copyText('@${uSafe}', this)">Copy</button>
-            <a href="${urlSafe}" target="_blank" rel="noopener noreferrer" class="btn-sm btn-primary">Visit ↗</a>
+            <a href="${urlSafe}" target="_blank" rel="noopener noreferrer" class="btn-sm btn-primary">
+              <img src="${picUrl}" alt="${uSafe}" class="btn-avatar-img" onerror="this.onerror=null;this.src='${fallbackUrl}';" />
+              <span>Visit ↗</span>
+            </a>
           </div>
         </td>
       </tr>`;
@@ -325,24 +335,40 @@ export function exportToHTML(
       font-family: 'JetBrains Mono', monospace;
       font-size: 11px;
     }
+    .user-link {
+      text-decoration: none;
+      color: inherit;
+    }
+    .user-link:hover .user-handle {
+      text-decoration: underline;
+      color: var(--white);
+    }
     .user-cell {
       display: flex;
       align-items: center;
       gap: 12px;
     }
-    .user-avatar {
+    .user-avatar-img {
       width: 32px;
       height: 32px;
       border-radius: 50%;
-      background: #18181b;
+      object-fit: cover;
       border: 1px solid var(--border);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 11px;
-      font-family: 'JetBrains Mono', monospace;
-      font-weight: 500;
-      color: var(--text-muted);
+      flex-shrink: 0;
+    }
+    .inline-avatar-img {
+      width: 16px;
+      height: 16px;
+      border-radius: 50%;
+      object-fit: cover;
+      border: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+    .btn-avatar-img {
+      width: 14px;
+      height: 14px;
+      border-radius: 50%;
+      object-fit: cover;
       flex-shrink: 0;
     }
     .user-meta {
@@ -368,6 +394,9 @@ export function exportToHTML(
       text-decoration: none;
       word-break: break-all;
       font-size: 12px;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
     }
     .link-url:hover {
       color: var(--white);

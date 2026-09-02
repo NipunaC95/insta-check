@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import { UserRecord, DashboardStats } from '../types/index.ts';
 import { exportToCSV, exportToHTML } from '../services/export.ts';
+import { UserAvatar } from './UserAvatar.tsx';
 
 interface UserListTableProps {
   stats: DashboardStats;
@@ -315,41 +316,37 @@ export const UserListTable: React.FC<UserListTableProps> = ({
                       {idx + 1}
                     </td>
 
-                    {/* User info */}
+                    {/* User info & handle link */}
                     <td className="px-4 sm:px-6 py-3">
-                      <div className="flex items-center gap-3">
-                        {user.profile_pic_url ? (
-                          <img
-                            src={user.profile_pic_url}
-                            alt={user.username}
-                            referrerPolicy="no-referrer"
-                            className="w-7 h-7 rounded-full object-cover border border-zinc-700"
-                          />
-                        ) : (
-                          <div className="w-7 h-7 rounded-full bg-zinc-900 border border-zinc-800 text-zinc-300 font-mono font-medium text-[10px] flex items-center justify-center shrink-0">
-                            {user.username.slice(0, 2).toUpperCase()}
-                          </div>
-                        )}
-
+                      <a
+                        href={user.profile_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-3 group/user-link hover:opacity-95 transition-opacity"
+                        title={`View @${user.username}'s profile on Instagram`}
+                      >
+                        <UserAvatar user={user} sizeClass="w-7 h-7" />
                         <div>
-                          <span className="font-mono font-medium text-zinc-200 group-hover:text-white transition-colors block">
+                          <span className="font-mono font-medium text-zinc-200 group-hover/user-link:text-white group-hover/user-link:underline transition-colors block">
                             @{user.username}
                           </span>
                           <span className="text-[10px] text-zinc-500 block sm:hidden">
                             instagram.com/{user.username}
                           </span>
                         </div>
-                      </div>
+                      </a>
                     </td>
 
-                    {/* Desktop URL display */}
+                    {/* Desktop URL display link */}
                     <td className="px-4 sm:px-6 py-3 hidden sm:table-cell">
                       <a
                         href={user.profile_url}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="text-xs text-zinc-400 hover:text-zinc-200 hover:underline inline-flex items-center gap-1 font-mono text-[11px]"
+                        className="text-xs text-zinc-400 hover:text-zinc-200 hover:underline inline-flex items-center gap-2 font-mono text-[11px]"
+                        title={`Open link: ${user.profile_url}`}
                       >
+                        <UserAvatar user={user} sizeClass="w-4 h-4" />
                         <span className="truncate max-w-xs">{user.profile_url}</span>
                         <ExternalLink className="w-3 h-3 shrink-0 opacity-50" />
                       </a>
@@ -375,8 +372,10 @@ export const UserListTable: React.FC<UserListTableProps> = ({
                           href={user.profile_url}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium text-zinc-300 hover:text-white bg-zinc-900 hover:bg-zinc-800 rounded-md border border-zinc-800 transition-colors"
+                          className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium text-zinc-300 hover:text-white bg-zinc-900 hover:bg-zinc-800 rounded-md border border-zinc-800 transition-colors"
+                          title={`Visit profile of ${user.username}`}
                         >
+                          <UserAvatar user={user} sizeClass="w-4 h-4" />
                           <span>Visit</span>
                           <ExternalLink className="w-3 h-3" />
                         </a>
