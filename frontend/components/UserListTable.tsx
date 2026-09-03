@@ -28,7 +28,6 @@ import {
   fetchFalsePositiveUsers,
   toggleFalsePositiveUserApi,
 } from '../services/api.ts';
-import { UserAvatar } from './UserAvatar.tsx';
 
 interface UserListTableProps {
   stats: DashboardStats;
@@ -628,15 +627,14 @@ export const UserListTable: React.FC<UserListTableProps> = ({
           <table className="w-full text-left border-collapse text-xs">
             <thead>
               <tr className="border-b border-zinc-800 bg-zinc-950/60 text-[10px] uppercase tracking-wider text-zinc-500 font-semibold font-mono">
-                <th className="px-4 sm:px-6 py-3 w-12 text-center">#</th>
-                <th className="px-4 sm:px-6 py-3">Account</th>
-                <th className="px-4 sm:px-6 py-3 hidden sm:table-cell">Profile URL</th>
-                <th className="px-4 sm:px-6 py-3 text-right">Action</th>
+                <th className="px-4 sm:px-6 py-3 w-12 text-center whitespace-nowrap">#</th>
+                <th className="px-4 sm:px-6 py-3 whitespace-nowrap">Account</th>
+                <th className="px-4 sm:px-6 py-3 hidden xl:table-cell whitespace-nowrap">Profile URL</th>
+                <th className="px-4 sm:px-6 py-3 text-right whitespace-nowrap w-[350px]">Action</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-zinc-800/60 text-xs">
               {filteredList.map((user, idx) => {
-                const isCopied = copiedUser === user.username;
                 const cleanUser = user.username.toLowerCase();
                 const isUnfollowed = unfollowedUsers.has(cleanUser);
                 const isNotFound = notFoundUsers.has(cleanUser);
@@ -656,92 +654,41 @@ export const UserListTable: React.FC<UserListTableProps> = ({
                     }`}
                   >
                     {/* Index */}
-                    <td className="px-4 sm:px-6 py-3 text-center text-zinc-500 font-mono text-[11px]">
+                    <td className="px-4 sm:px-6 py-2.5 text-center text-zinc-500 font-mono text-[11px] whitespace-nowrap">
                       {idx + 1}
                     </td>
 
-                    {/* User info & handle link */}
-                    <td className="px-4 sm:px-6 py-3">
-                      <div className="flex items-center gap-3">
-                        <a
-                          href={user.profile_url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="shrink-0 group/user-link hover:opacity-95 transition-opacity"
-                          title={`View @${user.username}'s profile on Instagram`}
-                        >
-                          <UserAvatar user={user} sizeClass="w-7 h-7" />
-                        </a>
-                        <div>
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <a
-                              href={user.profile_url}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="font-mono font-medium text-zinc-200 group-hover/user-link:text-white group-hover/user-link:underline transition-colors block"
-                              title={`View @${user.username}'s profile on Instagram`}
-                            >
-                              @{user.username}
-                            </a>
-
-                            {/* Red 'unfollowed' tag */}
-                            {isUnfollowed && (
-                              <span
-                                id={`tag-unfollowed-${user.username}`}
-                                className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wider bg-rose-500/15 text-rose-400 border border-rose-500/30 shadow-xs"
-                              >
-                                <span className="w-1.5 h-1.5 rounded-full bg-rose-400 shrink-0 animate-pulse" />
-                                unfollowed
-                              </span>
-                            )}
-
-                            {/* Amber 'not found' tag */}
-                            {isNotFound && (
-                              <span
-                                id={`tag-not-found-${user.username}`}
-                                className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wider bg-amber-500/15 text-amber-400 border border-amber-500/30 shadow-xs"
-                              >
-                                <span className="w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0 animate-pulse" />
-                                not found
-                              </span>
-                            )}
-
-                            {/* Sky 'false positive' tag */}
-                            {isFalsePositive && (
-                              <span
-                                id={`tag-false-positive-${user.username}`}
-                                className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wider bg-sky-500/15 text-sky-400 border border-sky-500/30 shadow-xs"
-                              >
-                                <span className="w-1.5 h-1.5 rounded-full bg-sky-400 shrink-0 animate-pulse" />
-                                false positive
-                              </span>
-                            )}
-                          </div>
-                          <span className="text-[10px] text-zinc-500 block sm:hidden font-mono">
-                            instagram.com/{user.username}
-                          </span>
-                        </div>
-                      </div>
-                    </td>
-
-                    {/* Desktop URL display link */}
-                    <td className="px-4 sm:px-6 py-3 hidden sm:table-cell">
+                    {/* User info & handle link (Single Row, No Avatars, No Left Tags) */}
+                    <td className="px-4 sm:px-6 py-2.5 whitespace-nowrap">
                       <a
                         href={user.profile_url}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="text-xs text-zinc-400 hover:text-zinc-200 hover:underline inline-flex items-center gap-2 font-mono text-[11px]"
+                        className="font-mono font-medium text-zinc-200 hover:text-white hover:underline transition-colors inline-flex items-center gap-1.5"
+                        title={`Open @${user.username} on Instagram`}
+                      >
+                        <span>@{user.username}</span>
+                        <ExternalLink className="w-3 h-3 text-zinc-500 opacity-60" />
+                      </a>
+                    </td>
+
+                    {/* Desktop URL display link (Only on large screens) */}
+                    <td className="px-4 sm:px-6 py-2.5 hidden xl:table-cell whitespace-nowrap text-zinc-500 font-mono text-[11px]">
+                      <a
+                        href={user.profile_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-xs text-zinc-400 hover:text-zinc-200 hover:underline inline-flex items-center gap-1.5 font-mono text-[11px] truncate max-w-[200px]"
                         title={`Open link: ${user.profile_url}`}
                       >
-                        <UserAvatar user={user} sizeClass="w-4 h-4" />
-                        <span className="truncate max-w-xs">{user.profile_url}</span>
+                        <span className="truncate">{user.profile_url}</span>
                         <ExternalLink className="w-3 h-3 shrink-0 opacity-50" />
                       </a>
                     </td>
 
-                    {/* Action buttons */}
-                    <td className="px-4 sm:px-6 py-3 text-right">
-                      <div className="inline-flex items-center gap-1.5 flex-wrap justify-end">
+                    {/* Action buttons (Strictly in One Row, No Wrap, Fully Visible) */}
+                    <td className="px-4 sm:px-6 py-2.5 text-right whitespace-nowrap w-[350px]">
+                      <div className="flex items-center justify-end gap-1.5 flex-nowrap whitespace-nowrap">
                         {/* Action buttons in Don't Follow Back table */}
                         {activeTab === 'nonFollowersBack' && (
                           <>
@@ -751,7 +698,7 @@ export const UserListTable: React.FC<UserListTableProps> = ({
                               type="button"
                               onClick={() => handleToggleUnfollow(user.username)}
                               title={isUnfollowed ? 'Click to undo unfollowed status' : 'Mark as unfollowed'}
-                              className={`inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-md transition-all cursor-pointer whitespace-nowrap ${
+                              className={`inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-md transition-all cursor-pointer whitespace-nowrap shrink-0 ${
                                 isUnfollowed
                                   ? 'text-rose-300 bg-rose-950/60 hover:bg-rose-900/70 border border-rose-500/40 shadow-xs'
                                   : 'text-rose-400 hover:text-white bg-rose-500/10 hover:bg-rose-600 border border-rose-500/25'
@@ -776,7 +723,7 @@ export const UserListTable: React.FC<UserListTableProps> = ({
                               type="button"
                               onClick={() => handleToggleNotFound(user.username)}
                               title={isNotFound ? 'Click to undo account not found status' : 'Mark as account not found'}
-                              className={`inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-md transition-all cursor-pointer whitespace-nowrap ${
+                              className={`inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-md transition-all cursor-pointer whitespace-nowrap shrink-0 ${
                                 isNotFound
                                   ? 'text-amber-300 bg-amber-950/60 hover:bg-amber-900/70 border border-amber-500/40 shadow-xs'
                                   : 'text-amber-400 hover:text-white bg-amber-500/10 hover:bg-amber-600 border border-amber-500/25'
@@ -790,7 +737,7 @@ export const UserListTable: React.FC<UserListTableProps> = ({
                               ) : (
                                 <>
                                   <SearchX className="w-3.5 h-3.5" />
-                                  <span><span className="hidden sm:inline">Account </span>Not Found</span>
+                                  <span>Account Not Found</span>
                                 </>
                               )}
                             </button>
@@ -801,7 +748,7 @@ export const UserListTable: React.FC<UserListTableProps> = ({
                               type="button"
                               onClick={() => handleToggleFalsePositive(user.username)}
                               title={isFalsePositive ? 'Click to undo false positive status' : 'Mark as false positive'}
-                              className={`inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-md transition-all cursor-pointer whitespace-nowrap ${
+                              className={`inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-md transition-all cursor-pointer whitespace-nowrap shrink-0 ${
                                 isFalsePositive
                                   ? 'text-sky-300 bg-sky-950/60 hover:bg-sky-900/70 border border-sky-500/40 shadow-xs'
                                   : 'text-sky-400 hover:text-white bg-sky-500/10 hover:bg-sky-600 border border-sky-500/25'
@@ -821,31 +768,6 @@ export const UserListTable: React.FC<UserListTableProps> = ({
                             </button>
                           </>
                         )}
-
-                        <button
-                          type="button"
-                          onClick={() => handleCopyUsername(user.username)}
-                          title="Copy @handle"
-                          className="p-1.5 text-zinc-400 hover:text-white hover:bg-zinc-800 rounded-md transition-colors cursor-pointer"
-                        >
-                          {isCopied ? (
-                            <Check className="w-3.5 h-3.5 text-emerald-400" />
-                          ) : (
-                            <Copy className="w-3.5 h-3.5" />
-                          )}
-                        </button>
-
-                        <a
-                          href={user.profile_url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium text-zinc-300 hover:text-white bg-zinc-900 hover:bg-zinc-800 rounded-md border border-zinc-800 transition-colors whitespace-nowrap"
-                          title={`Visit profile of ${user.username}`}
-                        >
-                          <UserAvatar user={user} sizeClass="w-4 h-4" />
-                          <span>Visit</span>
-                          <ExternalLink className="w-3 h-3" />
-                        </a>
                       </div>
                     </td>
                   </tr>
