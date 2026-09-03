@@ -18,13 +18,20 @@ function escapeHtml(str: string): string {
 export function exportToCSV(
   categoryName: string,
   users: UserRecord[],
-  unfollowedSet?: Set<string>
+  unfollowedSet?: Set<string>,
+  notFoundSet?: Set<string>,
+  falsePositiveSet?: Set<string>
 ): void {
   const dateStr = new Date().toISOString().slice(0, 10);
   const rows = ['username,profile_url,status'];
   for (const u of users) {
     const isUnfollowed = unfollowedSet ? unfollowedSet.has(u.username.toLowerCase()) : false;
-    const status = isUnfollowed ? 'unfollowed' : 'following';
+    const isNotFound = notFoundSet ? notFoundSet.has(u.username.toLowerCase()) : false;
+    const isFalsePositive = falsePositiveSet ? falsePositiveSet.has(u.username.toLowerCase()) : false;
+    let status = 'following';
+    if (isUnfollowed) status = 'unfollowed';
+    else if (isNotFound) status = 'not_found';
+    else if (isFalsePositive) status = 'false_positive';
     rows.push(`"${u.username.replace(/"/g, '""')}","${u.profile_url.replace(/"/g, '""')}","${status}"`);
   }
   const blob = new Blob([rows.join('\n')], { type: 'text/csv;charset=utf-8;' });
@@ -47,7 +54,9 @@ export function exportToHTML(
   users: UserRecord[],
   sessionLabel?: string,
   baselineSessionLabel?: string,
-  unfollowedSet?: Set<string>
+  unfollowedSet?: Set<string>,
+  notFoundSet?: Set<string>,
+  falsePositiveSet?: Set<string>
 ): void {
   const dateFormatted = new Date().toLocaleString('en-US', {
     dateStyle: 'medium',
@@ -64,16 +73,30 @@ export function exportToHTML(
       const uSafe = escapeHtml(user.username);
       const urlSafe = escapeHtml(user.profile_url);
       const isUnfollowed = unfollowedSet ? unfollowedSet.has(user.username.toLowerCase()) : false;
-      const unfollowedTag = isUnfollowed
-        ? `<span style="display:inline-flex;align-items:center;padding:2px 6px;font-size:10px;font-weight:600;text-transform:uppercase;color:#f87171;background:rgba(239,68,68,0.15);border:1px solid rgba(239,68,68,0.3);border-radius:4px;margin-left:6px;letter-spacing:0.05em;">unfollowed</span>`
-        : '';
+      const isNotFound = notFoundSet ? notFoundSet.has(user.username.toLowerCase()) : false;
+      const isFalsePositive = falsePositiveSet ? falsePositiveSet.has(user.username.toLowerCase()) : false;
+
+      let statusTag = '';
+      if (isUnfollowed) {
+        statusTag = `<span style="display:inline-flex;align-items:center;padding:2px 6px;font-size:10px;font-weight:600;text-transform:uppercase;color:#f87171;background:rgba(239,68,68,0.15);border:1px solid rgba(239,68,68,0.3);border-radius:4px;margin-left:6px;letter-spacing:0.05em;">unfollowed</span>`;
+      } else if (isNotFound) {
+        statusTag = `<span style="display:inline-flex;align-items:center;padding:2px 6px;font-size:10px;font-weight:600;text-transform:uppercase;color:#fbbf24;background:rgba(245,158,11,0.15);border:1px solid rgba(245,158,11,0.3);border-radius:4px;margin-left:6px;letter-spacing:0.05em;">not found</span>`;
+      } else if (isFalsePositive) {
+        statusTag = `<span style="display:inline-flex;align-items:center;padding:2px 6px;font-size:10px;font-weight:600;text-transform:uppercase;color:#38bdf8;background:rgba(14,165,233,0.15);border:1px solid rgba(14,165,233,0.3);border-radius:4px;margin-left:6px;letter-spacing:0.05em;">false positive</span>`;
+      }
+
+      let rowBgStyle = '';
+      if (isUnfollowed) rowBgStyle = 'style="background:rgba(239,68,68,0.03);"';
+      else if (isNotFound) rowBgStyle = 'style="background:rgba(245,158,11,0.03);"';
+      else if (isFalsePositive) rowBgStyle = 'style="background:rgba(14,165,233,0.03);"';
+
       const picUrl = user.profile_pic_url
         ? escapeHtml(user.profile_pic_url)
         : `https://unavatar.io/instagram/${uSafe}`;
       const fallbackUrl = `https://ui-avatars.com/api/?name=${uSafe}&background=18181b&color=e4e4e7&bold=true`;
 
       return `
-      <tr class="user-row ${isUnfollowed ? 'unfollowed-row' : ''}" data-username="${uSafe.toLowerCase()}" ${isUnfollowed ? 'style="background:rgba(239,68,68,0.03);"' : ''}>
+      <tr class="user-row ${isUnfollowed ? 'unfollowed-row' : ''} ${isNotFound ? 'not-found-row' : ''} ${isFalsePositive ? 'false-positive-row' : ''}" data-username="${uSafe.toLowerCase()}" ${rowBgStyle}>
         <td class="col-num">${idx + 1}</td>
         <td>
           <a href="${urlSafe}" target="_blank" rel="noopener noreferrer" class="user-link">
@@ -82,7 +105,7 @@ export function exportToHTML(
               <div class="user-meta">
                 <div style="display:flex;align-items:center;">
                   <span class="user-handle">@${uSafe}</span>
-                  ${unfollowedTag}
+                  ${statusTag}
                 </div>
                 <span class="user-sub">instagram.com/${uSafe}</span>
               </div>

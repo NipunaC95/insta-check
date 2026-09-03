@@ -36,10 +36,27 @@ CREATE TABLE IF NOT EXISTS unfollowed_users (
   unfollowed_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
--- 5. Indexes for fast lookups & comparisons
+-- 5. Table not_found_users: tracks accounts marked as account not found
+CREATE TABLE IF NOT EXISTS not_found_users (
+  id SERIAL PRIMARY KEY,
+  username VARCHAR(255) UNIQUE NOT NULL,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- 6. Table false_positive_users: tracks accounts marked as false positive
+CREATE TABLE IF NOT EXISTS false_positive_users (
+  id SERIAL PRIMARY KEY,
+  username VARCHAR(255) UNIQUE NOT NULL,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- 7. Indexes for fast lookups & comparisons
 CREATE INDEX IF NOT EXISTS idx_followers_upload_id ON followers(upload_id);
 CREATE INDEX IF NOT EXISTS idx_followers_username ON followers(username);
 CREATE INDEX IF NOT EXISTS idx_following_upload_id ON following(upload_id);
 CREATE INDEX IF NOT EXISTS idx_following_username ON following(username);
 CREATE INDEX IF NOT EXISTS idx_unfollowed_username ON unfollowed_users(username);
+CREATE INDEX IF NOT EXISTS idx_not_found_username ON not_found_users(username);
+CREATE INDEX IF NOT EXISTS idx_false_positive_username ON false_positive_users(username);
+
 

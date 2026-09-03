@@ -10,6 +10,8 @@ export class DatabaseService {
   private memoryFollowers: UserRow[] = [];
   private memoryFollowing: UserRow[] = [];
   private memoryUnfollowed: Set<string> = new Set<string>();
+  private memoryNotFound: Set<string> = new Set<string>();
+  private memoryFalsePositive: Set<string> = new Set<string>();
   private nextUploadId = 1;
   private nextUserId = 1;
 
@@ -82,11 +84,25 @@ export class DatabaseService {
               unfollowed_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
             );
 
+            CREATE TABLE IF NOT EXISTS not_found_users (
+              id SERIAL PRIMARY KEY,
+              username VARCHAR(255) UNIQUE NOT NULL,
+              created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+            );
+
+            CREATE TABLE IF NOT EXISTS false_positive_users (
+              id SERIAL PRIMARY KEY,
+              username VARCHAR(255) UNIQUE NOT NULL,
+              created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+            );
+
             CREATE INDEX IF NOT EXISTS idx_followers_upload_id ON followers(upload_id);
             CREATE INDEX IF NOT EXISTS idx_followers_username ON followers(username);
             CREATE INDEX IF NOT EXISTS idx_following_upload_id ON following(upload_id);
             CREATE INDEX IF NOT EXISTS idx_following_username ON following(username);
             CREATE INDEX IF NOT EXISTS idx_unfollowed_username ON unfollowed_users(username);
+            CREATE INDEX IF NOT EXISTS idx_not_found_username ON not_found_users(username);
+            CREATE INDEX IF NOT EXISTS idx_false_positive_username ON false_positive_users(username);
           `);
           this.isPgAvailable = true;
           console.log('PostgreSQL connected and schema verified successfully.');
@@ -431,6 +447,158 @@ export class DatabaseService {
       this.memoryUnfollowed.delete(cleanUsername);
     }
     return { username: cleanUsername, unfollowed };
+  }
+
+  public async getNotFoundUsers(): Promise<string[]> {
+    if (this.isPgAvailable && this.pgPool) {
+      try {
+        const res = await this.pgPool.query<{ username: string }>(
+          'SELECT username FROM not_found_users ORDER BY created_at DESC'
+        );
+        return res.rows.map((r) => r.username);
+      } catch (err: any) {
+        console.warn('Error fetching not_found users from PG:', err.message);
+      }
+    }
+    return Array.from(this.memoryNotFound);
+  }
+
+  public async toggleNotFoundUser(username: string): Promise<{ username: string; notFound: boolean }> {
+    const cleanUsername = username.trim().toLowerCase();
+    if (this.isPgAvailable && this.pgPool) {
+      try {
+        const checkRes = await this.pgPool.query(
+          'SELECT id FROM not_found_users WHERE LOWER(username) = $1',
+          [cleanUsername]
+        );
+        if ((checkRes.rowCount ?? 0) > 0) {
+          await this.pgPool.query('DELETE FROM not_found_users WHERE LOWER(username) = $1', [cleanUsername]);
+          this.memoryNotFound.delete(cleanUsername);
+          return { username: cleanUsername, notFound: false };
+        } else {
+          await this.pgPool.query(
+            'INSERT INTO not_found_users (username) VALUES ($1) ON CONFLICT (username) DO NOTHING',
+            [cleanUsername]
+          );
+          this.memoryNotFound.add(cleanUsername);
+          return { username: cleanUsername, notFound: true };
+        }
+      } catch (err: any) {
+        console.warn('Error toggling not_found user in PG, falling back to memory:', err.message);
+      }
+    }
+
+    if (this.memoryNotFound.has(cleanUsername)) {
+      this.memoryNotFound.delete(cleanUsername);
+      return { username: cleanUsername, notFound: false };
+    } else {
+      this.memoryNotFound.add(cleanUsername);
+      return { username: cleanUsername, notFound: true };
+    }
+  }
+
+  public async setNotFoundUser(username: string, notFound: boolean): Promise<{ username: string; notFound: boolean }> {
+    const cleanUsername = username.trim().toLowerCase();
+    if (this.isPgAvailable && this.pgPool) {
+      try {
+        if (notFound) {
+          await this.pgPool.query(
+            'INSERT INTO not_found_users (username) VALUES ($1) ON CONFLICT (username) DO NOTHING',
+            [cleanUsername]
+          );
+          this.memoryNotFound.add(cleanUsername);
+        } else {
+          await this.pgPool.query('DELETE FROM not_found_users WHERE LOWER(username) = $1', [cleanUsername]);
+          this.memoryNotFound.delete(cleanUsername);
+        }
+        return { username: cleanUsername, notFound };
+      } catch (err: any) {
+        console.warn('Error setting not_found user in PG, falling back to memory:', err.message);
+      }
+    }
+
+    if (notFound) {
+      this.memoryNotFound.add(cleanUsername);
+    } else {
+      this.memoryNotFound.delete(cleanUsername);
+    }
+    return { username: cleanUsername, notFound };
+  }
+
+  public async getFalsePositiveUsers(): Promise<string[]> {
+    if (this.isPgAvailable && this.pgPool) {
+      try {
+        const res = await this.pgPool.query<{ username: string }>(
+          'SELECT username FROM false_positive_users ORDER BY created_at DESC'
+        );
+        return res.rows.map((r) => r.username);
+      } catch (err: any) {
+        console.warn('Error fetching false_positive users from PG:', err.message);
+      }
+    }
+    return Array.from(this.memoryFalsePositive);
+  }
+
+  public async toggleFalsePositiveUser(username: string): Promise<{ username: string; falsePositive: boolean }> {
+    const cleanUsername = username.trim().toLowerCase();
+    if (this.isPgAvailable && this.pgPool) {
+      try {
+        const checkRes = await this.pgPool.query(
+          'SELECT id FROM false_positive_users WHERE LOWER(username) = $1',
+          [cleanUsername]
+        );
+        if ((checkRes.rowCount ?? 0) > 0) {
+          await this.pgPool.query('DELETE FROM false_positive_users WHERE LOWER(username) = $1', [cleanUsername]);
+          this.memoryFalsePositive.delete(cleanUsername);
+          return { username: cleanUsername, falsePositive: false };
+        } else {
+          await this.pgPool.query(
+            'INSERT INTO false_positive_users (username) VALUES ($1) ON CONFLICT (username) DO NOTHING',
+            [cleanUsername]
+          );
+          this.memoryFalsePositive.add(cleanUsername);
+          return { username: cleanUsername, falsePositive: true };
+        }
+      } catch (err: any) {
+        console.warn('Error toggling false_positive user in PG, falling back to memory:', err.message);
+      }
+    }
+
+    if (this.memoryFalsePositive.has(cleanUsername)) {
+      this.memoryFalsePositive.delete(cleanUsername);
+      return { username: cleanUsername, falsePositive: false };
+    } else {
+      this.memoryFalsePositive.add(cleanUsername);
+      return { username: cleanUsername, falsePositive: true };
+    }
+  }
+
+  public async setFalsePositiveUser(username: string, falsePositive: boolean): Promise<{ username: string; falsePositive: boolean }> {
+    const cleanUsername = username.trim().toLowerCase();
+    if (this.isPgAvailable && this.pgPool) {
+      try {
+        if (falsePositive) {
+          await this.pgPool.query(
+            'INSERT INTO false_positive_users (username) VALUES ($1) ON CONFLICT (username) DO NOTHING',
+            [cleanUsername]
+          );
+          this.memoryFalsePositive.add(cleanUsername);
+        } else {
+          await this.pgPool.query('DELETE FROM false_positive_users WHERE LOWER(username) = $1', [cleanUsername]);
+          this.memoryFalsePositive.delete(cleanUsername);
+        }
+        return { username: cleanUsername, falsePositive };
+      } catch (err: any) {
+        console.warn('Error setting false_positive user in PG, falling back to memory:', err.message);
+      }
+    }
+
+    if (falsePositive) {
+      this.memoryFalsePositive.add(cleanUsername);
+    } else {
+      this.memoryFalsePositive.delete(cleanUsername);
+    }
+    return { username: cleanUsername, falsePositive };
   }
 }
 

@@ -104,4 +104,30 @@ export async function toggleUnfollowedUserApi(username: string): Promise<{ usern
   });
 }
 
+export async function fetchNotFoundUsers(): Promise<string[]> {
+  const data = await safeFetchJson<{ notFound: string[] }>('/api/not-found');
+  return data.notFound || [];
+}
+
+export async function toggleNotFoundUserApi(username: string): Promise<{ username: string; notFound: boolean }> {
+  return safeFetchJson<{ success: boolean; username: string; notFound: boolean }>('/api/not-found/toggle', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username }),
+  });
+}
+
+export async function fetchFalsePositiveUsers(): Promise<string[]> {
+  const data = await safeFetchJson<{ falsePositive: string[] }>('/api/false-positive');
+  return data.falsePositive || [];
+}
+
+export async function toggleFalsePositiveUserApi(username: string): Promise<{ username: string; falsePositive: boolean }> {
+  return safeFetchJson<{ success: boolean; username: string; falsePositive: boolean }>('/api/false-positive/toggle', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username }),
+  });
+}
+
 

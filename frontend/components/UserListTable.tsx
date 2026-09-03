@@ -15,10 +15,19 @@ import {
   EyeOff,
   Users,
   RotateCcw,
+  SearchX,
+  ShieldAlert,
 } from 'lucide-react';
 import { UserRecord, DashboardStats } from '../types/index.ts';
 import { exportToCSV, exportToHTML } from '../services/export.ts';
-import { fetchUnfollowedUsers, toggleUnfollowedUserApi } from '../services/api.ts';
+import {
+  fetchUnfollowedUsers,
+  toggleUnfollowedUserApi,
+  fetchNotFoundUsers,
+  toggleNotFoundUserApi,
+  fetchFalsePositiveUsers,
+  toggleFalsePositiveUserApi,
+} from '../services/api.ts';
 import { UserAvatar } from './UserAvatar.tsx';
 
 interface UserListTableProps {
@@ -37,7 +46,7 @@ export const UserListTable: React.FC<UserListTableProps> = ({
   const [copiedUser, setCopiedUser] = useState<string | null>(null);
   const [copiedAll, setCopiedAll] = useState(false);
   const [showExportMenu, setShowExportMenu] = useState(false);
-  const [unfollowFilter, setUnfollowFilter] = useState<'all' | 'pending' | 'unfollowed'>('all');
+  const [unfollowFilter, setUnfollowFilter] = useState<'all' | 'pending' | 'unfollowed' | 'notFound' | 'falsePositive'>('all');
 
   // Track unfollowed users (persisted in localStorage and synchronized with backend)
   const [unfollowedUsers, setUnfollowedUsers] = useState<Set<string>>(() => {
@@ -55,9 +64,42 @@ export const UserListTable: React.FC<UserListTableProps> = ({
     return new Set<string>();
   });
 
+  // Track account not found users (persisted in localStorage and synchronized with backend)
+  const [notFoundUsers, setNotFoundUsers] = useState<Set<string>>(() => {
+    try {
+      const saved = localStorage.getItem('insta_not_found_usernames');
+      if (saved) {
+        const arr = JSON.parse(saved);
+        if (Array.isArray(arr)) {
+          return new Set(arr.map((u: string) => u.toLowerCase()));
+        }
+      }
+    } catch (e) {
+      console.error('Failed to load not found users from localStorage', e);
+    }
+    return new Set<string>();
+  });
+
+  // Track false positive users (persisted in localStorage and synchronized with backend)
+  const [falsePositiveUsers, setFalsePositiveUsers] = useState<Set<string>>(() => {
+    try {
+      const saved = localStorage.getItem('insta_false_positive_usernames');
+      if (saved) {
+        const arr = JSON.parse(saved);
+        if (Array.isArray(arr)) {
+          return new Set(arr.map((u: string) => u.toLowerCase()));
+        }
+      }
+    } catch (e) {
+      console.error('Failed to load false positive users from localStorage', e);
+    }
+    return new Set<string>();
+  });
+
   // Background sync with backend
   useEffect(() => {
     let isMounted = true;
+
     fetchUnfollowedUsers()
       .then((serverList) => {
         if (!isMounted || !serverList || serverList.length === 0) return;
@@ -74,6 +116,42 @@ export const UserListTable: React.FC<UserListTableProps> = ({
       })
       .catch((err) => {
         console.warn('Backend unfollowed sync notice:', err.message);
+      });
+
+    fetchNotFoundUsers()
+      .then((serverList) => {
+        if (!isMounted || !serverList || serverList.length === 0) return;
+        setNotFoundUsers((prev) => {
+          const merged = new Set(prev);
+          serverList.forEach((u) => merged.add(u.toLowerCase()));
+          try {
+            localStorage.setItem('insta_not_found_usernames', JSON.stringify(Array.from(merged)));
+          } catch {
+            // ignore
+          }
+          return merged;
+        });
+      })
+      .catch((err) => {
+        console.warn('Backend not found sync notice:', err.message);
+      });
+
+    fetchFalsePositiveUsers()
+      .then((serverList) => {
+        if (!isMounted || !serverList || serverList.length === 0) return;
+        setFalsePositiveUsers((prev) => {
+          const merged = new Set(prev);
+          serverList.forEach((u) => merged.add(u.toLowerCase()));
+          try {
+            localStorage.setItem('insta_false_positive_usernames', JSON.stringify(Array.from(merged)));
+          } catch {
+            // ignore
+          }
+          return merged;
+        });
+      })
+      .catch((err) => {
+        console.warn('Backend false positive sync notice:', err.message);
       });
 
     return () => {
@@ -104,6 +182,58 @@ export const UserListTable: React.FC<UserListTableProps> = ({
       await toggleUnfollowedUserApi(clean);
     } catch (err: any) {
       console.warn('Backend toggle API notice (locally preserved):', err.message);
+    }
+  };
+
+  const handleToggleNotFound = async (username: string) => {
+    const clean = username.toLowerCase().trim();
+    const willBeNotFound = !notFoundUsers.has(clean);
+
+    setNotFoundUsers((prev) => {
+      const next = new Set(prev);
+      if (willBeNotFound) {
+        next.add(clean);
+      } else {
+        next.delete(clean);
+      }
+      try {
+        localStorage.setItem('insta_not_found_usernames', JSON.stringify(Array.from(next)));
+      } catch (err) {
+        console.error('Error saving not found state:', err);
+      }
+      return next;
+    });
+
+    try {
+      await toggleNotFoundUserApi(clean);
+    } catch (err: any) {
+      console.warn('Backend toggle not found notice (locally preserved):', err.message);
+    }
+  };
+
+  const handleToggleFalsePositive = async (username: string) => {
+    const clean = username.toLowerCase().trim();
+    const willBeFalsePositive = !falsePositiveUsers.has(clean);
+
+    setFalsePositiveUsers((prev) => {
+      const next = new Set(prev);
+      if (willBeFalsePositive) {
+        next.add(clean);
+      } else {
+        next.delete(clean);
+      }
+      try {
+        localStorage.setItem('insta_false_positive_usernames', JSON.stringify(Array.from(next)));
+      } catch (err) {
+        console.error('Error saving false positive state:', err);
+      }
+      return next;
+    });
+
+    try {
+      await toggleFalsePositiveUserApi(clean);
+    } catch (err: any) {
+      console.warn('Backend toggle false positive notice (locally preserved):', err.message);
     }
   };
 
@@ -182,12 +312,25 @@ export const UserListTable: React.FC<UserListTableProps> = ({
     }
   }, [activeTab, stats]);
 
-  // Count unfollowed and pending in current rawList for Don't Follow Back tab
+  // Counts for Don't Follow Back tab
   const unfollowedCountInTab = useMemo(() => {
     return rawList.filter((u) => unfollowedUsers.has(u.username.toLowerCase())).length;
   }, [rawList, unfollowedUsers]);
 
-  const pendingCountInTab = rawList.length - unfollowedCountInTab;
+  const notFoundCountInTab = useMemo(() => {
+    return rawList.filter((u) => notFoundUsers.has(u.username.toLowerCase())).length;
+  }, [rawList, notFoundUsers]);
+
+  const falsePositiveCountInTab = useMemo(() => {
+    return rawList.filter((u) => falsePositiveUsers.has(u.username.toLowerCase())).length;
+  }, [rawList, falsePositiveUsers]);
+
+  const pendingCountInTab = useMemo(() => {
+    return rawList.filter((u) => {
+      const clean = u.username.toLowerCase();
+      return !unfollowedUsers.has(clean) && !notFoundUsers.has(clean) && !falsePositiveUsers.has(clean);
+    }).length;
+  }, [rawList, unfollowedUsers, notFoundUsers, falsePositiveUsers]);
 
   // Filter and sort list
   const filteredList = useMemo(() => {
@@ -199,12 +342,19 @@ export const UserListTable: React.FC<UserListTableProps> = ({
       result = result.filter((u) => u.username.toLowerCase().includes(q));
     }
 
-    // Filter by unfollowed status if in Don't Follow Back tab
+    // Filter by status if in Don't Follow Back tab
     if (activeTab === 'nonFollowersBack' && unfollowFilter !== 'all') {
       if (unfollowFilter === 'unfollowed') {
         result = result.filter((u) => unfollowedUsers.has(u.username.toLowerCase()));
+      } else if (unfollowFilter === 'notFound') {
+        result = result.filter((u) => notFoundUsers.has(u.username.toLowerCase()));
+      } else if (unfollowFilter === 'falsePositive') {
+        result = result.filter((u) => falsePositiveUsers.has(u.username.toLowerCase()));
       } else if (unfollowFilter === 'pending') {
-        result = result.filter((u) => !unfollowedUsers.has(u.username.toLowerCase()));
+        result = result.filter((u) => {
+          const clean = u.username.toLowerCase();
+          return !unfollowedUsers.has(clean) && !notFoundUsers.has(clean) && !falsePositiveUsers.has(clean);
+        });
       }
     }
 
@@ -214,7 +364,7 @@ export const UserListTable: React.FC<UserListTableProps> = ({
     });
 
     return result;
-  }, [rawList, searchTerm, sortDirection, activeTab, unfollowFilter, unfollowedUsers]);
+  }, [rawList, searchTerm, sortDirection, activeTab, unfollowFilter, unfollowedUsers, notFoundUsers, falsePositiveUsers]);
 
   // Copy single username
   const handleCopyUsername = (username: string) => {
@@ -237,13 +387,13 @@ export const UserListTable: React.FC<UserListTableProps> = ({
   const onExportHTML = () => {
     const currentLabel = stats.currentUpload.label || `Upload #${stats.currentUpload.id}`;
     const baseLabel = stats.previousUpload?.label || (stats.previousUpload ? `Upload #${stats.previousUpload.id}` : undefined);
-    exportToHTML(activeTab, activeTabMeta.label, filteredList, currentLabel, baseLabel, unfollowedUsers);
+    exportToHTML(activeTab, activeTabMeta.label, filteredList, currentLabel, baseLabel, unfollowedUsers, notFoundUsers, falsePositiveUsers);
     setShowExportMenu(false);
   };
 
   // Handle CSV export
   const onExportCSV = () => {
-    exportToCSV(activeTab, filteredList, unfollowedUsers);
+    exportToCSV(activeTab, filteredList, unfollowedUsers, notFoundUsers, falsePositiveUsers);
     setShowExportMenu(false);
   };
 
@@ -299,7 +449,7 @@ export const UserListTable: React.FC<UserListTableProps> = ({
           />
         </div>
 
-        {/* Don't Follow Back Filter Pills: All / Following / Unfollowed */}
+        {/* Don't Follow Back Filter Pills: All / Following / Unfollowed / Not Found / False Positive */}
         {activeTab === 'nonFollowersBack' && (
           <div className="flex items-center gap-1 bg-zinc-900/90 p-1 rounded-lg border border-zinc-800 text-xs w-full sm:w-auto overflow-x-auto">
             <button
@@ -345,6 +495,48 @@ export const UserListTable: React.FC<UserListTableProps> = ({
                 }`}
               >
                 {unfollowedCountInTab}
+              </span>
+            </button>
+            <button
+              id="filter-not-found-btn"
+              type="button"
+              onClick={() => setUnfollowFilter('notFound')}
+              className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium transition-all cursor-pointer whitespace-nowrap ${
+                unfollowFilter === 'notFound'
+                  ? 'bg-amber-950/60 text-amber-300 border border-amber-500/40 shadow-xs'
+                  : 'text-zinc-400 hover:text-amber-400'
+              }`}
+            >
+              <span>Not Found</span>
+              <span
+                className={`text-[10px] font-mono px-1.5 py-0.2 rounded-full ${
+                  notFoundCountInTab > 0
+                    ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+                    : 'bg-zinc-800 text-zinc-500'
+                }`}
+              >
+                {notFoundCountInTab}
+              </span>
+            </button>
+            <button
+              id="filter-false-positive-btn"
+              type="button"
+              onClick={() => setUnfollowFilter('falsePositive')}
+              className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium transition-all cursor-pointer whitespace-nowrap ${
+                unfollowFilter === 'falsePositive'
+                  ? 'bg-sky-950/60 text-sky-300 border border-sky-500/40 shadow-xs'
+                  : 'text-zinc-400 hover:text-sky-400'
+              }`}
+            >
+              <span>False Positive</span>
+              <span
+                className={`text-[10px] font-mono px-1.5 py-0.2 rounded-full ${
+                  falsePositiveCountInTab > 0
+                    ? 'bg-sky-500/20 text-sky-300 border border-sky-500/30'
+                    : 'bg-zinc-800 text-zinc-500'
+                }`}
+              >
+                {falsePositiveCountInTab}
               </span>
             </button>
           </div>
@@ -445,13 +637,22 @@ export const UserListTable: React.FC<UserListTableProps> = ({
             <tbody className="divide-y divide-zinc-800/60 text-xs">
               {filteredList.map((user, idx) => {
                 const isCopied = copiedUser === user.username;
-                const isUnfollowed = unfollowedUsers.has(user.username.toLowerCase());
+                const cleanUser = user.username.toLowerCase();
+                const isUnfollowed = unfollowedUsers.has(cleanUser);
+                const isNotFound = notFoundUsers.has(cleanUser);
+                const isFalsePositive = falsePositiveUsers.has(cleanUser);
 
                 return (
                   <tr
                     key={`${user.username}-${idx}`}
                     className={`hover:bg-zinc-900/40 transition-colors group ${
-                      isUnfollowed ? 'bg-rose-950/15' : ''
+                      isUnfollowed
+                        ? 'bg-rose-950/15'
+                        : isNotFound
+                        ? 'bg-amber-950/15'
+                        : isFalsePositive
+                        ? 'bg-sky-950/15'
+                        : ''
                     }`}
                   >
                     {/* Index */}
@@ -493,6 +694,28 @@ export const UserListTable: React.FC<UserListTableProps> = ({
                                 unfollowed
                               </span>
                             )}
+
+                            {/* Amber 'not found' tag */}
+                            {isNotFound && (
+                              <span
+                                id={`tag-not-found-${user.username}`}
+                                className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wider bg-amber-500/15 text-amber-400 border border-amber-500/30 shadow-xs"
+                              >
+                                <span className="w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0 animate-pulse" />
+                                not found
+                              </span>
+                            )}
+
+                            {/* Sky 'false positive' tag */}
+                            {isFalsePositive && (
+                              <span
+                                id={`tag-false-positive-${user.username}`}
+                                className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wider bg-sky-500/15 text-sky-400 border border-sky-500/30 shadow-xs"
+                              >
+                                <span className="w-1.5 h-1.5 rounded-full bg-sky-400 shrink-0 animate-pulse" />
+                                false positive
+                              </span>
+                            )}
                           </div>
                           <span className="text-[10px] text-zinc-500 block sm:hidden font-mono">
                             instagram.com/{user.username}
@@ -518,32 +741,85 @@ export const UserListTable: React.FC<UserListTableProps> = ({
 
                     {/* Action buttons */}
                     <td className="px-4 sm:px-6 py-3 text-right">
-                      <div className="inline-flex items-center gap-1.5">
-                        {/* Action button in Don't Follow Back table to unfollow */}
+                      <div className="inline-flex items-center gap-1.5 flex-wrap justify-end">
+                        {/* Action buttons in Don't Follow Back table */}
                         {activeTab === 'nonFollowersBack' && (
-                          <button
-                            id={`btn-unfollow-${user.username}`}
-                            type="button"
-                            onClick={() => handleToggleUnfollow(user.username)}
-                            title={isUnfollowed ? 'Click to undo unfollowed status' : 'Mark as unfollowed'}
-                            className={`inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-md transition-all cursor-pointer ${
-                              isUnfollowed
-                                ? 'text-rose-300 bg-rose-950/60 hover:bg-rose-900/70 border border-rose-500/40 shadow-xs'
-                                : 'text-rose-400 hover:text-white bg-rose-500/10 hover:bg-rose-600 border border-rose-500/25'
-                            }`}
-                          >
-                            {isUnfollowed ? (
-                              <>
-                                <Check className="w-3.5 h-3.5 text-rose-400" />
-                                <span>Unfollowed</span>
-                              </>
-                            ) : (
-                              <>
-                                <UserMinus className="w-3.5 h-3.5" />
-                                <span>Unfollow</span>
-                              </>
-                            )}
-                          </button>
+                          <>
+                            {/* Unfollow Button */}
+                            <button
+                              id={`btn-unfollow-${user.username}`}
+                              type="button"
+                              onClick={() => handleToggleUnfollow(user.username)}
+                              title={isUnfollowed ? 'Click to undo unfollowed status' : 'Mark as unfollowed'}
+                              className={`inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-md transition-all cursor-pointer whitespace-nowrap ${
+                                isUnfollowed
+                                  ? 'text-rose-300 bg-rose-950/60 hover:bg-rose-900/70 border border-rose-500/40 shadow-xs'
+                                  : 'text-rose-400 hover:text-white bg-rose-500/10 hover:bg-rose-600 border border-rose-500/25'
+                              }`}
+                            >
+                              {isUnfollowed ? (
+                                <>
+                                  <Check className="w-3.5 h-3.5 text-rose-400" />
+                                  <span>Unfollowed</span>
+                                </>
+                              ) : (
+                                <>
+                                  <UserMinus className="w-3.5 h-3.5" />
+                                  <span>Unfollow</span>
+                                </>
+                              )}
+                            </button>
+
+                            {/* Account Not Found Button */}
+                            <button
+                              id={`btn-not-found-${user.username}`}
+                              type="button"
+                              onClick={() => handleToggleNotFound(user.username)}
+                              title={isNotFound ? 'Click to undo account not found status' : 'Mark as account not found'}
+                              className={`inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-md transition-all cursor-pointer whitespace-nowrap ${
+                                isNotFound
+                                  ? 'text-amber-300 bg-amber-950/60 hover:bg-amber-900/70 border border-amber-500/40 shadow-xs'
+                                  : 'text-amber-400 hover:text-white bg-amber-500/10 hover:bg-amber-600 border border-amber-500/25'
+                              }`}
+                            >
+                              {isNotFound ? (
+                                <>
+                                  <Check className="w-3.5 h-3.5 text-amber-400" />
+                                  <span>Not Found</span>
+                                </>
+                              ) : (
+                                <>
+                                  <SearchX className="w-3.5 h-3.5" />
+                                  <span><span className="hidden sm:inline">Account </span>Not Found</span>
+                                </>
+                              )}
+                            </button>
+
+                            {/* False Positive Button */}
+                            <button
+                              id={`btn-false-positive-${user.username}`}
+                              type="button"
+                              onClick={() => handleToggleFalsePositive(user.username)}
+                              title={isFalsePositive ? 'Click to undo false positive status' : 'Mark as false positive'}
+                              className={`inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-md transition-all cursor-pointer whitespace-nowrap ${
+                                isFalsePositive
+                                  ? 'text-sky-300 bg-sky-950/60 hover:bg-sky-900/70 border border-sky-500/40 shadow-xs'
+                                  : 'text-sky-400 hover:text-white bg-sky-500/10 hover:bg-sky-600 border border-sky-500/25'
+                              }`}
+                            >
+                              {isFalsePositive ? (
+                                <>
+                                  <Check className="w-3.5 h-3.5 text-sky-400" />
+                                  <span>False Positive</span>
+                                </>
+                              ) : (
+                                <>
+                                  <ShieldAlert className="w-3.5 h-3.5" />
+                                  <span>False Positive</span>
+                                </>
+                              )}
+                            </button>
+                          </>
                         )}
 
                         <button
@@ -563,7 +839,7 @@ export const UserListTable: React.FC<UserListTableProps> = ({
                           href={user.profile_url}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium text-zinc-300 hover:text-white bg-zinc-900 hover:bg-zinc-800 rounded-md border border-zinc-800 transition-colors"
+                          className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium text-zinc-300 hover:text-white bg-zinc-900 hover:bg-zinc-800 rounded-md border border-zinc-800 transition-colors whitespace-nowrap"
                           title={`Visit profile of ${user.username}`}
                         >
                           <UserAvatar user={user} sizeClass="w-4 h-4" />
