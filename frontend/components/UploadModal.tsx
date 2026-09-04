@@ -14,8 +14,8 @@ export const UploadModal: React.FC<UploadModalProps> = ({
   onClose,
   onUploadSuccess,
 }) => {
-  const [followersFile, setFollowersFile] = useState<File | null>(null);
-  const [followingFile, setFollowingFile] = useState<File | null>(null);
+  const [followersFiles, setFollowersFiles] = useState<File[]>([]);
+  const [followingFiles, setFollowingFiles] = useState<File[]>([]);
   const [zipFile, setZipFile] = useState<File | null>(null);
   const [label, setLabel] = useState('');
   const [isDragging, setIsDragging] = useState(false);
@@ -32,8 +32,8 @@ export const UploadModal: React.FC<UploadModalProps> = ({
 
     const fileList = Array.from(files);
     for (const file of fileList) {
-      if (file.size > 10 * 1024 * 1024) {
-        setErrorMessage(`File "${file.name}" exceeds the 10 MB limit.`);
+      if (file.size > 25 * 1024 * 1024) {
+        setErrorMessage(`File "${file.name}" exceeds the 25 MB limit.`);
         return;
       }
     }
@@ -42,10 +42,13 @@ export const UploadModal: React.FC<UploadModalProps> = ({
     const zip = fileList.find((f) => f.name.toLowerCase().endsWith('.zip'));
     if (zip) {
       setZipFile(zip);
-      setFollowersFile(null);
-      setFollowingFile(null);
+      setFollowersFiles([]);
+      setFollowingFiles([]);
       return;
     }
+
+    const newFollowers: File[] = [];
+    const newFollowing: File[] = [];
 
     // Inspect non-zip files
     for (const file of fileList) {
@@ -60,43 +63,69 @@ export const UploadModal: React.FC<UploadModalProps> = ({
         continue;
       }
 
-      // Sniff first 4KB of content for accurate role classification
+      // 1. Check explicit filename patterns first
       let role: 'followers' | 'following' | 'unknown' = 'unknown';
-      try {
-        const textSample = await file.slice(0, 4096).text();
-        if (textSample.includes('"relationships_following"')) {
-          role = 'following';
-        } else if (textSample.includes('"relationships_followers"') || textSample.includes('"media_list_data"')) {
-          role = 'followers';
-        } else if (lowerName.includes('following')) {
-          role = 'following';
-        } else if (lowerName.includes('follower')) {
-          role = 'followers';
+      if (/^followers(_\d+)?\.(json|html?)$/i.test(lowerName) || lowerName.includes('follower')) {
+        role = 'followers';
+      } else if (/^following(_\d+)?\.(json|html?)$/i.test(lowerName) || lowerName.includes('following')) {
+        role = 'following';
+      } else {
+        // Sniff content if filename doesn't contain follower or following
+        try {
+          const textSample = await file.slice(0, 4096).text();
+          if (textSample.includes('"relationships_following"')) {
+            role = 'following';
+          } else if (textSample.includes('"relationships_followers"')) {
+            role = 'followers';
+          }
+        } catch {
+          // ignore
         }
-      } catch {
-        if (lowerName.includes('following')) role = 'following';
-        else if (lowerName.includes('follower')) role = 'followers';
       }
 
       if (role === 'following') {
-        setFollowingFile(file);
-        setZipFile(null);
+        newFollowing.push(file);
       } else if (role === 'followers') {
-        setFollowersFile(file);
-        setZipFile(null);
+        newFollowers.push(file);
       } else {
         // Unknown role: place into empty slot
-        setZipFile(null);
-        setFollowersFile((prev) => (!prev ? file : prev));
-        setFollowingFile((prev) => (prev ? prev : file));
+        if (followersFiles.length === 0 && newFollowers.length === 0) {
+          newFollowers.push(file);
+        } else {
+          newFollowing.push(file);
+        }
       }
+    }
+
+    setZipFile(null);
+    if (newFollowers.length > 0) {
+      setFollowersFiles((prev) => {
+        const existingNames = new Set(prev.map((f) => f.name));
+        const added = newFollowers.filter((f) => !existingNames.has(f.name));
+        return [...prev, ...added];
+      });
+    }
+    if (newFollowing.length > 0) {
+      setFollowingFiles((prev) => {
+        const existingNames = new Set(prev.map((f) => f.name));
+        const added = newFollowing.filter((f) => !existingNames.has(f.name));
+        return [...prev, ...added];
+      });
     }
   };
 
   const swapFiles = () => {
-    const temp = followersFile;
-    setFollowersFile(followingFile);
-    setFollowingFile(temp);
+    const tempFollowers = followersFiles;
+    setFollowersFiles(followingFiles);
+    setFollowingFiles(tempFollowers);
+  };
+
+  const removeFollowerFile = (index: number) => {
+    setFollowersFiles((prev) => prev.filter((_, idx) => idx !== index));
+  };
+
+  const removeFollowingFile = (index: number) => {
+    setFollowingFiles((prev) => prev.filter((_, idx) => idx !== index));
   };
 
   const handleDragOver = (e: React.DragEvent) => {
@@ -118,9 +147,9 @@ export const UploadModal: React.FC<UploadModalProps> = ({
     e.preventDefault();
     setErrorMessage(null);
 
-    if (!zipFile && (!followersFile || !followingFile)) {
+    if (!zipFile && (followersFiles.length === 0 || followingFiles.length === 0)) {
       setErrorMessage(
-        'Please upload both followers and following export files (.json or .html), OR upload a single .zip archive.'
+        'Please upload both followers (e.g. followers_1.json) and following (following.json) files, OR a single .zip archive.'
       );
       return;
     }
@@ -135,8 +164,12 @@ export const UploadModal: React.FC<UploadModalProps> = ({
       if (zipFile) {
         formData.append('archive', zipFile);
       } else {
-        if (followersFile) formData.append('followers', followersFile);
-        if (followingFile) formData.append('following', followingFile);
+        for (const file of followersFiles) {
+          formData.append('followers', file);
+        }
+        for (const file of followingFiles) {
+          formData.append('following', file);
+        }
       }
 
       const data = await uploadExportFiles(formData);
@@ -150,14 +183,17 @@ export const UploadModal: React.FC<UploadModalProps> = ({
   };
 
   const resetSelection = () => {
-    setFollowersFile(null);
-    setFollowingFile(null);
+    setFollowersFiles([]);
+    setFollowingFiles([]);
     setZipFile(null);
     setErrorMessage(null);
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
     }
   };
+
+  const totalFollowersBytes = followersFiles.reduce((acc, f) => acc + f.size, 0);
+  const totalFollowingBytes = followingFiles.reduce((acc, f) => acc + f.size, 0);
 
   return (
     <div className="fixed inset-0 z-50 overflow-y-auto bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
@@ -167,7 +203,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({
           <div>
             <h2 className="text-base font-semibold text-white">Upload Instagram Export</h2>
             <p className="text-xs text-zinc-400">
-              Supports JSON (.json), HTML (.html), or ZIP archive (Max 10 MB)
+              Supports JSON (.json), HTML (.html), or ZIP archive (Multiple follower parts supported)
             </p>
           </div>
           <button
@@ -216,9 +252,9 @@ export const UploadModal: React.FC<UploadModalProps> = ({
               Click to browse or drag & drop files here
             </p>
             <p className="text-xs text-zinc-500 mt-1">
-              Upload <span className="font-mono text-zinc-300">followers</span> &{' '}
-              <span className="font-mono text-zinc-300">following</span> (.json or .html), or the full{' '}
-              <span className="font-mono text-zinc-300">.zip</span> export
+              Upload <span className="font-mono text-zinc-300">followers</span> (can select multiple parts: followers_1, followers_2...) &{' '}
+              <span className="font-mono text-zinc-300">following</span>, or full{' '}
+              <span className="font-mono text-zinc-300">.zip</span>
             </p>
           </div>
 
@@ -249,56 +285,124 @@ export const UploadModal: React.FC<UploadModalProps> = ({
             ) : (
               <div className="space-y-2">
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                  {/* Followers check */}
+                  {/* Followers section */}
                   <div
-                    className={`flex items-center gap-2 p-2.5 rounded-lg border text-xs ${
-                      followersFile
+                    className={`flex flex-col p-2.5 rounded-lg border text-xs gap-1.5 ${
+                      followersFiles.length > 0
                         ? 'bg-zinc-900/90 border-zinc-700 text-zinc-200'
                         : 'bg-zinc-950/40 border-zinc-850 text-zinc-500'
                     }`}
                   >
-                    {followersFile ? (
-                      <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-                    ) : (
-                      <FileText className="w-4 h-4 text-zinc-600 shrink-0" />
-                    )}
-                    <div className="truncate">
-                      <span className="font-medium block truncate text-zinc-200 font-mono text-[11px]">
-                        {followersFile ? followersFile.name : 'followers (json/html)'}
-                      </span>
-                      <span className="text-[10px] text-zinc-500">
-                        {followersFile ? `${(followersFile.size / 1024).toFixed(1)} KB` : 'Required'}
-                      </span>
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        {followersFiles.length > 0 ? (
+                          <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                        ) : (
+                          <FileText className="w-4 h-4 text-zinc-600 shrink-0" />
+                        )}
+                        <span className="font-semibold text-zinc-200 text-xs">
+                          Followers ({followersFiles.length})
+                        </span>
+                      </div>
+                      {followersFiles.length > 0 && (
+                        <span className="text-[10px] text-zinc-400 font-mono">
+                          {(totalFollowersBytes / 1024).toFixed(1)} KB
+                        </span>
+                      )}
                     </div>
+
+                    {followersFiles.length === 0 ? (
+                      <span className="text-[10px] text-zinc-500">
+                        followers_1.json (or .html)
+                      </span>
+                    ) : (
+                      <div className="space-y-1 max-h-24 overflow-y-auto pr-1 scrollbar-thin">
+                        {followersFiles.map((f, idx) => (
+                          <div
+                            key={`${f.name}-${idx}`}
+                            className="flex items-center justify-between bg-zinc-950/60 px-2 py-0.5 rounded border border-zinc-800 text-[11px] font-mono"
+                          >
+                            <span className="truncate max-w-[120px]" title={f.name}>
+                              {f.name}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                removeFollowerFile(idx);
+                              }}
+                              className="text-zinc-500 hover:text-rose-400 ml-1.5 cursor-pointer"
+                              title="Remove file"
+                            >
+                              &times;
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
 
-                  {/* Following check */}
+                  {/* Following section */}
                   <div
-                    className={`flex items-center gap-2 p-2.5 rounded-lg border text-xs ${
-                      followingFile
+                    className={`flex flex-col p-2.5 rounded-lg border text-xs gap-1.5 ${
+                      followingFiles.length > 0
                         ? 'bg-zinc-900/90 border-zinc-700 text-zinc-200'
                         : 'bg-zinc-950/40 border-zinc-850 text-zinc-500'
                     }`}
                   >
-                    {followingFile ? (
-                      <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-                    ) : (
-                      <FileText className="w-4 h-4 text-zinc-600 shrink-0" />
-                    )}
-                    <div className="truncate">
-                      <span className="font-medium block truncate text-zinc-200 font-mono text-[11px]">
-                        {followingFile ? followingFile.name : 'following (json/html)'}
-                      </span>
-                      <span className="text-[10px] text-zinc-500">
-                        {followingFile ? `${(followingFile.size / 1024).toFixed(1)} KB` : 'Required'}
-                      </span>
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        {followingFiles.length > 0 ? (
+                          <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                        ) : (
+                          <FileText className="w-4 h-4 text-zinc-600 shrink-0" />
+                        )}
+                        <span className="font-semibold text-zinc-200 text-xs">
+                          Following ({followingFiles.length})
+                        </span>
+                      </div>
+                      {followingFiles.length > 0 && (
+                        <span className="text-[10px] text-zinc-400 font-mono">
+                          {(totalFollowingBytes / 1024).toFixed(1)} KB
+                        </span>
+                      )}
                     </div>
+
+                    {followingFiles.length === 0 ? (
+                      <span className="text-[10px] text-zinc-500">
+                        following.json (or .html)
+                      </span>
+                    ) : (
+                      <div className="space-y-1 max-h-24 overflow-y-auto pr-1 scrollbar-thin">
+                        {followingFiles.map((f, idx) => (
+                          <div
+                            key={`${f.name}-${idx}`}
+                            className="flex items-center justify-between bg-zinc-950/60 px-2 py-0.5 rounded border border-zinc-800 text-[11px] font-mono"
+                          >
+                            <span className="truncate max-w-[120px]" title={f.name}>
+                              {f.name}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                removeFollowingFile(idx);
+                              }}
+                              className="text-zinc-500 hover:text-rose-400 ml-1.5 cursor-pointer"
+                              title="Remove file"
+                            >
+                              &times;
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 </div>
 
-                {(followersFile || followingFile) && (
+                {(followersFiles.length > 0 || followingFiles.length > 0) && (
                   <div className="flex items-center justify-between pt-1 px-0.5">
-                    {followersFile && followingFile ? (
+                    {followersFiles.length > 0 && followingFiles.length > 0 ? (
                       <button
                         type="button"
                         onClick={swapFiles}
@@ -352,7 +456,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({
             <button
               id="submit-upload-btn"
               type="submit"
-              disabled={isSubmitting || (!zipFile && (!followersFile || !followingFile))}
+              disabled={isSubmitting || (!zipFile && (followersFiles.length === 0 || followingFiles.length === 0))}
               className="inline-flex items-center gap-1.5 px-4 py-1.5 text-xs font-medium text-black bg-white hover:bg-zinc-200 disabled:opacity-40 disabled:cursor-not-allowed rounded-lg shadow-xs transition-colors cursor-pointer"
             >
               {isSubmitting ? (

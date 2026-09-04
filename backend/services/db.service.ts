@@ -322,20 +322,36 @@ export class DatabaseService {
     const currentFollowers = await this.getFollowers(currentUploadId);
     const currentFollowing = await this.getFollowing(currentUploadId);
 
+    const cleanKey = (name: string) => name.trim().toLowerCase().replace(/^@+/, '');
+
+    // Deduplicate lists by canonical handle
     const followersMap = new Map<string, ExtractedUser>();
-    for (const u of currentFollowers) followersMap.set(u.username, u);
+    for (const u of currentFollowers) {
+      const key = cleanKey(u.username);
+      if (key && !followersMap.has(key)) {
+        followersMap.set(key, u);
+      }
+    }
 
     const followingMap = new Map<string, ExtractedUser>();
-    for (const u of currentFollowing) followingMap.set(u.username, u);
+    for (const u of currentFollowing) {
+      const key = cleanKey(u.username);
+      if (key && !followingMap.has(key)) {
+        followingMap.set(key, u);
+      }
+    }
+
+    const dedupedFollowers = Array.from(followersMap.values());
+    const dedupedFollowing = Array.from(followingMap.values());
 
     // 1. Non-followers back: People you follow who do not follow you back
-    const nonFollowersBack = currentFollowing.filter((u) => !followersMap.has(u.username));
+    const nonFollowersBack = dedupedFollowing.filter((u) => !followersMap.has(cleanKey(u.username)));
 
     // 2. Mutuals: People you follow who also follow you back
-    const mutuals = currentFollowing.filter((u) => followersMap.has(u.username));
+    const mutuals = dedupedFollowing.filter((u) => followersMap.has(cleanKey(u.username)));
 
     // 3. Fans: People who follow you, but you don't follow them back
-    const fans = currentFollowers.filter((u) => !followingMap.has(u.username));
+    const fans = dedupedFollowers.filter((u) => !followingMap.has(cleanKey(u.username)));
 
     // 4. Unfollowers and New Followers compared with previous session
     let unfollowers: ExtractedUser[] = [];
@@ -344,20 +360,25 @@ export class DatabaseService {
     if (previousUpload) {
       const prevFollowers = await this.getFollowers(previousUpload.id);
       const prevFollowersMap = new Map<string, ExtractedUser>();
-      for (const u of prevFollowers) prevFollowersMap.set(u.username, u);
+      for (const u of prevFollowers) {
+        const key = cleanKey(u.username);
+        if (key && !prevFollowersMap.has(key)) {
+          prevFollowersMap.set(key, u);
+        }
+      }
 
       // Unfollowers: Was following you in previous session, but NOT in current session
-      unfollowers = prevFollowers.filter((u) => !followersMap.has(u.username));
+      unfollowers = Array.from(prevFollowersMap.values()).filter((u) => !followersMap.has(cleanKey(u.username)));
 
       // New Followers: In current session, but was NOT in previous session
-      newFollowers = currentFollowers.filter((u) => !prevFollowersMap.has(u.username));
+      newFollowers = dedupedFollowers.filter((u) => !prevFollowersMap.has(cleanKey(u.username)));
     }
 
     return {
       currentUpload,
       previousUpload,
-      totalFollowers: currentFollowers.length,
-      totalFollowing: currentFollowing.length,
+      totalFollowers: dedupedFollowers.length,
+      totalFollowing: dedupedFollowing.length,
       nonFollowersBackCount: nonFollowersBack.length,
       unfollowersCount: unfollowers.length,
       newFollowersCount: newFollowers.length,
@@ -368,8 +389,8 @@ export class DatabaseService {
       newFollowers,
       mutuals,
       fans,
-      allFollowers: currentFollowers,
-      allFollowing: currentFollowing,
+      allFollowers: dedupedFollowers,
+      allFollowing: dedupedFollowing,
     };
   }
 

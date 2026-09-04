@@ -79,7 +79,18 @@ export async function handleUpload(req: Request, res: Response) {
       for (const file of allUploadedFiles) {
         const lowerName = file.originalname.toLowerCase();
         const fileContent = file.buffer.toString('utf8');
-        const role = detectInstagramDataRole(fileContent);
+
+        // Check role using content and filename
+        let role = detectInstagramDataRole(fileContent, file.originalname);
+
+        // If role is still unknown or fieldname is explicit, respect fieldname
+        if (role === 'unknown') {
+          if (file.fieldname === 'followers' || lowerName.includes('follower')) {
+            role = 'followers';
+          } else if (file.fieldname === 'following' || lowerName.includes('following')) {
+            role = 'following';
+          }
+        }
 
         if (role === 'both') {
           try {
@@ -101,32 +112,33 @@ export async function handleUpload(req: Request, res: Response) {
           const parsed = parseInstagramData(fileContent);
           following.push(...parsed);
         } else {
-          // If role is unknown from content inspection, fallback to name/fieldname
-          if (lowerName.includes('follower') || file.fieldname === 'followers') {
-            const parsed = parseInstagramData(fileContent);
+          // Heuristic fallback for arbitrary single files
+          const parsed = parseInstagramData(fileContent);
+          if (followers.length === 0) {
             followers.push(...parsed);
-          } else if (lowerName.includes('following') || file.fieldname === 'following') {
-            const parsed = parseInstagramData(fileContent);
-            following.push(...parsed);
           } else {
-            // Heuristic fallback
-            const parsed = parseInstagramData(fileContent);
-            if (followers.length === 0) {
-              followers.push(...parsed);
-            } else {
-              following.push(...parsed);
-            }
+            following.push(...parsed);
           }
         }
       }
 
-      // Deduplicate lists
+      // Deduplicate lists by canonical lowercased handle
       const fMap = new Map<string, ExtractedUser>();
-      for (const u of followers) fMap.set(u.username, u);
+      for (const u of followers) {
+        const key = u.username.trim().toLowerCase();
+        if (!fMap.has(key)) {
+          fMap.set(key, u);
+        }
+      }
       followers = Array.from(fMap.values());
 
       const foMap = new Map<string, ExtractedUser>();
-      for (const u of following) foMap.set(u.username, u);
+      for (const u of following) {
+        const key = u.username.trim().toLowerCase();
+        if (!foMap.has(key)) {
+          foMap.set(key, u);
+        }
+      }
       following = Array.from(foMap.values());
 
       if (followers.length === 0 && following.length === 0) {

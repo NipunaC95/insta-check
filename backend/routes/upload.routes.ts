@@ -14,10 +14,10 @@ router.delete('/uploads/:uploadId', deleteUpload);
 router.post(
   '/upload',
   uploadMiddleware.fields([
-    { name: 'followers', maxCount: 1 },
-    { name: 'following', maxCount: 1 },
+    { name: 'followers', maxCount: 25 },
+    { name: 'following', maxCount: 10 },
     { name: 'archive', maxCount: 1 },
-    { name: 'files', maxCount: 5 },
+    { name: 'files', maxCount: 35 },
   ]),
   handleUpload
 );
